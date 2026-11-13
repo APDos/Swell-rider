@@ -8,6 +8,7 @@ extends RefCounted
 ##             for about a quarter second before turning off the bottom
 ## - "sloppy": rides low on the flatter part of the face, pumps with uneven
 ##             timing and short jabs (how beginners tend to pump)
+## - "mash":   holds the good line but hammers the key 5 times a second
 ## - "none":   never pumps
 
 var style := "good"
@@ -61,6 +62,9 @@ func pump(surfer) -> float:
 				return 0.0  # wait for the steep part of the face
 			_press_until = _clock + 0.25
 			_next_pump = _clock + period
+		"mash":
+			_press_until = _clock + 0.12
+			_next_pump = _clock + 0.2
 		"sloppy":
 			_press_until = _clock + _rng.randf_range(0.11, 0.2)   # short jabs
 			_next_pump = _clock + _rng.randf_range(0.3, 1.8)

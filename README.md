@@ -31,6 +31,7 @@ Side-view wave riding in Godot 4.3+. Everything (wave, surfer, HUD) is built in 
   - pump on the steep upper half of the face, not low in the flats or right at the lip
   - drive for about a quarter second before releasing
   - keep a steady rhythm, roughly one pump a second
+  - don't mash the key: you can't pump more often than about every 0.6 s (presses sooner are ignored), and mashing between pumps wrecks the next one
 - **Stall** (hold ←) to sit deeper in the pocket or wait for the barrel. The tail digs in, and the drag grows with your speed squared: a stall at full speed brakes hard, a stall when you're slow barely does anything. Stall too long and you lose the wave.
 - Points come from speed, multiplied by how close you are to the pocket (up to x3).
 - **Off the Lip**: hit the top fast at a moderate angle. **Air**: hit the top fast and steep (heading > ~35°, speed > ~32 km/h). You'll need to pump up that speed first.

@@ -46,6 +46,7 @@ const SETTLE_TIME := Vector2(0.2, 0.5)  # s held past the leg stroke: from x the
 const PITCH_RATE := 12.0      # 1/s: how quickly the board follows the drive and the rise
 const PUMP_KICK := 4.0        # m/s a perfect pump adds turning off the bottom (a sloppy one: a third)
 const KICK_TIME := 0.15       # s the kick is spread over, as the rail loads up through the turn
+const MIN_PUMP_INTERVAL := 0.6  # s from one drive to the next: the legs have to carve back up and reload. Presses sooner are ignored; a key still held then starts the drive
 const MIN_DRIVE := 0.1        # s: a shorter hold is only a nose flick, no pump
 const GOOD_DRIVE := Vector2(0.2, 0.3)  # s of drive for full timing credit: ramps up to x, full by y
 const PUSH_STROKE := 0.5      # s of driving before the legs run out of travel
@@ -90,6 +91,9 @@ var _drive_start_t := 0.6
 var _drive_force := 0.0       # hardest the trigger was pulled during this drive
 var _rise_time := 0.0
 var _idle_time := 0.0
+var _last_drive_start := -10.0
+var _fumbled := false         # pressed again before MIN_PUMP_INTERVAL: wiggling the board breaks your rhythm
+var _was_held := false
 var _kick_left := 0.0         # m/s of the current kick still to be added
 var tail_dig := 0.0           # 0..1, how far the tail is sunk
 var _last_push_start := -10.0
@@ -155,6 +159,8 @@ func reset(start_x: float) -> void:
 	_kick_left = 0.0
 	tail_dig = 0.0
 	_last_push_start = -10.0
+	_last_drive_start = -10.0
+	_fumbled = false
 	_last_interval = -1.0
 	in_barrel = false
 	barrel_depth = 0.0
@@ -266,6 +272,9 @@ func heading() -> float:
 ##    and bogs. Hold on for SETTLE_TIME and you've chosen that lower line: the
 ##    release still gives the bottom turn, but doesn't carve you back up.
 ## A hold shorter than MIN_DRIVE is only a nose flick: no kick.
+## You can't pump faster than once per MIN_PUMP_INTERVAL: mashing the key just
+## gets ignored presses, not a wiggling board full of speed, and the next pump
+## after an ignored press scores PUMP_MIN_QUALITY.
 ##
 ## How good a pump is gets decided at the bottom turn (_score_pump):
 ## - height: drive from the steep upper face, not the flats or right at the lip
@@ -274,7 +283,11 @@ func heading() -> float:
 ## The sloppiest pump still gets PUMP_MIN_QUALITY, a perfect one 1.0 (3x).
 func _pump_accel(dt: float, pump: float, flen: float) -> float:
 	var held := pump > PUMP_PRESS
-	if held and pump_phase != PUMP_DRIVE:
+	var ready := _clock - _last_drive_start >= MIN_PUMP_INTERVAL - 1e-6
+	if held and not _was_held and not ready:
+		_fumbled = true
+	_was_held = held
+	if held and pump_phase != PUMP_DRIVE and ready:
 		# Pumping in a rhythm keeps the line you were carving back up to, so small
 		# overshoots don't add up. Steering, or a pause, picks a new line.
 		pump_line_t = rise_target_t if pump_phase == PUMP_RISE or _idle_time < LINE_MEMORY else t
@@ -282,6 +295,7 @@ func _pump_accel(dt: float, pump: float, flen: float) -> float:
 		_drive_time = 0.0
 		_drive_force = 0.0
 		_drive_start_t = t
+		_last_drive_start = _clock
 		stroke = 1.0
 	elif not held and pump_phase == PUMP_DRIVE:
 		if _drive_time >= MIN_DRIVE:
@@ -347,8 +361,15 @@ func _score_pump() -> float:
 	var timing := smoothstep(MIN_DRIVE, GOOD_DRIVE.x, _drive_time) * (1.0 - smoothstep(0.0, 0.4, over))
 	if _drive_time > GOOD_DRIVE.y:
 		timing *= lerpf(1.0, 0.8, clampf((_drive_time - GOOD_DRIVE.y) / (PUSH_STROKE - GOOD_DRIVE.y), 0.0, 1.0))
-	var rhythm := 0.5  # first pump of a run: neutral
 	var interval := _clock - _last_push_start
+	_last_push_start = _clock
+	if _fumbled:
+		# Mashed the key since the last pump: the board was wiggling, not
+		# pumping, so this one is as sloppy as it gets and the rhythm restarts.
+		_fumbled = false
+		_last_interval = -1.0
+		return PUMP_MIN_QUALITY
+	var rhythm := 0.5  # first pump of a run: neutral
 	if interval > PUMP_RHYTHM_RANGE.y:
 		_last_interval = -1.0
 	elif interval >= PUMP_RHYTHM_RANGE.x:
@@ -357,7 +378,6 @@ func _score_pump() -> float:
 		_last_interval = interval
 	else:
 		rhythm = 0.0  # pumping faster than a real rhythm
-	_last_push_start = _clock
 	var score := height * (0.4 + 0.3 * timing + 0.3 * rhythm)
 	return lerpf(PUMP_MIN_QUALITY, 1.0, score)
 

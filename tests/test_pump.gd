@@ -3,6 +3,7 @@ extends SceneTree
 ## (curl speed changes, closeout sections) with scripted riders plugged in:
 ## - riding without pumping gets caught by the wave
 ## - sloppy pumping keeps you going, good pumping is clearly faster
+## - mashing the key is capped at one pump per MIN_PUMP_INTERVAL and is slower than a real rhythm
 ## - a perfect pump is worth 3x a sloppy one, and a pump brings you back up to your line
 ## - the tail stall brakes harder the faster you go (drag ~ v²)
 ##
@@ -34,7 +35,8 @@ func _run() -> void:
 	var cruise := await _rides(Autopilot.new("none"))
 	var sloppy := await _rides(Autopilot.new("sloppy"))
 	var good := await _rides(Autopilot.new("good"))
-	for r in [["cruise (no pumping)", cruise], ["sloppy pumping", sloppy], ["good pumping", good]]:
+	var mash := await _rides(Autopilot.new("mash"))
+	for r in [["cruise (no pumping)", cruise], ["sloppy pumping", sloppy], ["good pumping", good], ["mashing (5/s)", mash]]:
 		_log("%-20s survived %d/%d  avg time %5.1fs  line speed %5.2f m/s  pumps/ride %3d  avg quality %.2f  %s" % [
 			r[0], r[1].survived, SEEDS.size(), r[1].time, r[1].avg_v, r[1].pumps, r[1].avg_q, r[1].reasons])
 	_expect(cruise.survived == 0 and cruise.time < 25.0, "riding without pumping should get caught, on average within 25 s (survived %d, avg %.1f s)" % [cruise.survived, cruise.time])
@@ -42,6 +44,8 @@ func _run() -> void:
 	_expect(good.survived == SEEDS.size(), "good pumping should make every wave (made %d/%d)" % [good.survived, SEEDS.size()])
 	_expect(good.avg_v > sloppy.avg_v + 0.7, "good pumping should be clearly faster than sloppy (%.2f vs %.2f m/s)" % [good.avg_v, sloppy.avg_v])
 	_expect(good.avg_q > 0.85, "good pumping should score near-perfect pumps (%.2f)" % good.avg_q)
+	_expect(mash.pumps <= int(RIDE_TIME / SurferScript.MIN_PUMP_INTERVAL) + 1, "mashing should be capped at one pump per MIN_PUMP_INTERVAL (%d pumps in %.0f s)" % [mash.pumps, RIDE_TIME])
+	_expect(good.avg_v > mash.avg_v + 0.7, "pumping in a real rhythm should be clearly faster than mashing the key (%.2f vs %.2f m/s)" % [good.avg_v, mash.avg_v])
 	_expect(good.avg_q > sloppy.avg_q + 0.2, "good pumping should score clearly better pumps than sloppy (%.2f vs %.2f)" % [good.avg_q, sloppy.avg_q])
 
 	_check_single_pump_ratio()
