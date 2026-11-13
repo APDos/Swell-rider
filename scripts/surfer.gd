@@ -3,27 +3,48 @@ extends Node3D
 ## (0 trough .. 1 lip), v speed, phi heading (0 = straight down the line,
 ## + = angled up the face, - = angled down).
 ##
+## Speed comes from two places, as in real surfing:
+## - The wave: gravity on the face, plus a push from the breaking water that is
+##   strongest in the pocket. On its own this isn't quite enough to keep up.
+## - Pumping: rise up the face, then hold carve-down to drive the board down
+##   through the steep part. See _pump_* below for how a pump is scored.
+## The tail stall (stall action, toward the curl) digs the tail in: water drag
+## that grows with speed squared, so it brakes hard when you're fast.
+##
 ## step() advances the simulation and is called at the fixed physics rate.
 ## update_visual() is called every rendered frame and draws the surfer blended
 ## between the last two physics ticks, so motion is smooth at any frame rate.
 
 signal trick_landed(trick_name: String, points: int)
 signal wiped_out(reason: String)
+signal pumped(quality: float)   # a push started; quality is PUMP_MIN_QUALITY..1
 
 enum { RIDING, AIR, WIPEOUT }
 
 # --- tuning -------------------------------------------------------------------
 const G := 11.0          # gravity along the face
-const WAVE_PUSH := 5.6   # energy from the wave, strongest in the pocket
+const WAVE_PUSH := 2.4   # free push from the breaking wave, strongest in the pocket; not enough without pumping
 const C1 := 0.12         # linear drag
 const C2 := 0.022        # quadratic drag
 const TURN := 2.8        # rad/s at full steer
 const TURN_RESPONSE := 9.0  # 1/s: how quickly a turn builds up and eases off
 const RECENTER := 0.7    # 1/s: with no steer input, heading eases back toward straight
 const MAX_PHI := 1.35
+const PUMP_ANGLE := 0.65    # rad down the face where holding carve-down settles: a driving line, not a dive
+const STEEP_TURN := 0.3     # turn rate multiplier for going steeper than PUMP_ANGLE
 const DRIFT := 0.10      # water rising up the face carries you toward the lip (t/s)
-const PUMP_BOOST := 1.3
-const PUMP_COOLDOWN := 0.55
+# pumping
+const PUSH_THRESHOLD := 0.3   # carve-down input beyond this is a push (keyboard ↓ is always 1)
+const PUMP_POWER := 40.0       # extra drive down the face from a perfect pump (m/s² at full slope/heading)
+const PUSH_STROKE := 0.45     # s of pushing before the legs are fully extended
+const RECOVER_TIME := 0.35    # s to get the full stroke back when not pushing
+const PUMP_MIN_QUALITY := 1.0 / 3.0  # sloppiest pump; a perfect one is 1.0 (3x)
+const PUMP_HIGH_T := Vector2(0.35, 0.70)  # push start height: no credit below x, full credit above y
+const PUMP_FULL_RISE := 0.3   # rise up the face (in t) since the last push for full credit
+const PUMP_RHYTHM_RANGE := Vector2(0.6, 2.2)  # s between pumps that counts as a rhythm
+# tail stall
+const STALL_DRAG := 0.055     # 1/m: tail drag coefficient (decel = STALL_DRAG * dig * v²)
+const STALL_DIG_TIME := 0.18  # s to shift weight back and sink the tail
 const AIR_GRAVITY := 14.0
 const SPIN_RATE := 7.5
 const MIN_SPEED := 3.0
@@ -44,7 +65,13 @@ var _air_time := 0.0
 
 var _clock := 0.0
 var _last_trick := -10.0
-var _pump_ready := 0.0
+var pushing := false
+var stroke := 1.0             # leg travel left for this push (0..1)
+var pump_quality := 0.0       # quality of the current/last pump, PUMP_MIN_QUALITY..1
+var tail_dig := 0.0           # 0..1, how far the tail is sunk
+var _trough_t := 0.5          # lowest t since the last push ended
+var _last_push_start := -10.0
+var _last_interval := -1.0
 var _lean := 0.0
 var _wipe_pos := Vector3.ZERO
 var _wipe_vel := Vector3.ZERO
@@ -75,6 +102,9 @@ var _xray: StandardMaterial3D
 var _halo: MeshInstance3D
 var _halo_mat: StandardMaterial3D
 var _glow := 0.0
+var _upper: Array = []    # [node, rest position] for torso, head, arms: they crouch and lean
+var _crouch := 0.0
+var _dig_vis := 0.0
 
 
 func _ready() -> void:
@@ -89,6 +119,13 @@ func reset(start_x: float) -> void:
 	phi = -0.1
 	spin = 0.0
 	turn_rate = 0.0
+	pushing = false
+	stroke = 1.0
+	pump_quality = 0.0
+	tail_dig = 0.0
+	_trough_t = t
+	_last_push_start = -10.0
+	_last_interval = -1.0
 	in_barrel = false
 	barrel_depth = 0.0
 	_wipe_rot = Vector3.ZERO
@@ -108,25 +145,31 @@ func _save_prev() -> void:
 	_p_wipe_rot = _wipe_rot
 
 
-## One fixed physics tick. steer is -1..1 (carve down/up on the face, spin in the air).
-func step(dt: float, steer: float, pump: bool) -> void:
+## One fixed physics tick. steer is -1..1 (carve down/up on the face, spin in
+## the air). stall is 0..1 (weight on the tail).
+func step(dt: float, steer: float, stall := 0.0) -> void:
 	_save_prev()
 	_clock += dt
 	_steer = steer
 	match state:
-		RIDING: _step_riding(dt, steer, pump)
+		RIDING: _step_riding(dt, steer, stall)
 		AIR: _step_air(dt, steer)
 		WIPEOUT: _step_wipeout(dt)
 
 
-func _step_riding(dt: float, steer: float, pump: bool) -> void:
+func _step_riding(dt: float, steer: float, stall: float) -> void:
 	var d: float = x - wave.curl_x
 	var slope: float = wave.slope_at(x, t)
 	var flen: float = wave.face_length(x)
 
 	# Turns build up and ease off rather than switching on and off instantly.
 	turn_rate = lerpf(turn_rate, steer * TURN, 1.0 - exp(-TURN_RESPONSE * dt))
-	phi += turn_rate * dt
+	# Holding down settles into a driving angle. You can still go steeper by
+	# holding on, but slowly, so a held key doesn't nose-dive you to the bottom.
+	var dphi := turn_rate * dt
+	if dphi < 0.0 and phi < -PUMP_ANGLE:
+		dphi *= STEEP_TURN
+	phi += dphi
 	if absf(steer) < 0.1:
 		phi = lerpf(phi, 0.0, 1.0 - exp(-RECENTER * dt))
 	phi = clampf(phi, -MAX_PHI, MAX_PHI)
@@ -135,11 +178,11 @@ func _step_riding(dt: float, steer: float, pump: bool) -> void:
 	var a := -G * sin(slope) * sin(phi) + WAVE_PUSH * sin(slope) * pocket - C1 * v - C2 * v * v
 	if t < 0.06:
 		a -= 3.0  # bogging in the flats
-	v = maxf(v + a * dt, 0.0)
+	a += _pump_accel(dt, steer, slope)
 
-	if pump and _clock > _pump_ready and t > 0.25 and t < 0.85:
-		v += PUMP_BOOST * clampf(sin(slope) * 1.4, 0.3, 1.0)
-		_pump_ready = _clock + PUMP_COOLDOWN
+	tail_dig = move_toward(tail_dig, clampf(stall, 0.0, 1.0), dt / STALL_DIG_TIME)
+	a -= STALL_DRAG * tail_dig * v * v
+	v = maxf(v + a * dt, 0.0)
 
 	t += (v * sin(phi) / flen + DRIFT) * dt
 	x += v * cos(phi) * dt
@@ -172,6 +215,60 @@ func _step_riding(dt: float, steer: float, pump: bool) -> void:
 		_wipeout("The lip landed on you")
 	elif v < MIN_SPEED:
 		_wipeout("Lost the wave")
+
+
+## Pumping. Holding carve-down is a push: it drives the board down the face
+## harder than gravity alone, so you gain speed on the way down. The push only
+## adds speed while you are heading down the face, most on the steep middle
+## part, and only while the legs still have stroke left. Holding too long
+## just carries you down into the flats, where you bog.
+##
+## How good a pump is gets decided when the push starts:
+## - height: start the push high on the face
+## - rise:   actually rise up the face since the last push (no tapping in place)
+## - rhythm: keep a steady interval between pumps
+## The sloppiest pump still gets PUMP_MIN_QUALITY, a perfect one gets 1.0.
+func _pump_accel(dt: float, steer: float, slope: float) -> float:
+	var push := steer < -PUSH_THRESHOLD
+	if push and not pushing:
+		pump_quality = _score_pump()
+		pumped.emit(pump_quality)
+	elif not push and pushing:
+		_trough_t = t
+	pushing = push
+	if not pushing:
+		_trough_t = minf(_trough_t, t)
+		stroke = minf(stroke + dt / RECOVER_TIME, 1.0)
+		return 0.0
+	if stroke <= 0.0:
+		return 0.0
+	var zone := smoothstep(0.08, 0.25, t) * (1.0 - smoothstep(0.85, 0.97, t))
+	# Full drive once you're heading down at a moderate angle. Diving steeper
+	# earns nothing extra and costs you progress down the line.
+	var down := smoothstep(0.0, sin(PUMP_ANGLE) * 0.8, -sin(phi))
+	# The legs only spend their stroke while the push is driving you down the
+	# face, so pressing down at the top of the rise (the right moment) isn't
+	# wasted while the board is still turning over.
+	stroke = maxf(stroke - dt / PUSH_STROKE * down * zone, 0.0)
+	return PUMP_POWER * pump_quality * zone * sin(slope) * down
+
+
+func _score_pump() -> float:
+	var height := smoothstep(PUMP_HIGH_T.x, PUMP_HIGH_T.y, t)
+	var rise := clampf((t - _trough_t) / PUMP_FULL_RISE, 0.0, 1.0)
+	var rhythm := 0.5  # first pump of a run: neutral
+	var interval := _clock - _last_push_start
+	if interval > PUMP_RHYTHM_RANGE.y:
+		_last_interval = -1.0
+	elif interval >= PUMP_RHYTHM_RANGE.x:
+		if _last_interval > 0.0:
+			rhythm = 1.0 - clampf(absf(interval - _last_interval) / (0.5 * _last_interval), 0.0, 1.0)
+		_last_interval = interval
+	else:
+		rhythm = 0.0  # pumping faster than a real rhythm
+	_last_push_start = _clock
+	var score := height * rise * (0.5 + 0.5 * rhythm)
+	return lerpf(PUMP_MIN_QUALITY, 1.0, score)
 
 
 func _launch() -> void:
@@ -277,8 +374,14 @@ func update_visual(delta: float) -> void:
 		global_transform.basis = Basis(q)
 	_snap_visual = false
 
-	_rig.rotation = Vector3(0, 0, _lean * 0.45 if state == RIDING else 0.0)
-	_spray.emitting = state == RIDING and absf(_steer) > 0.3 and v > 7.0
+	# Pumping: crouch while the legs are driving. Stalling: nose up, weight back.
+	var driving := state == RIDING and pushing and stroke > 0.0
+	_crouch = lerpf(_crouch, 1.0 if driving else 0.0, 1.0 - exp(-14.0 * delta))
+	_dig_vis = lerpf(_dig_vis, tail_dig if state == RIDING else 0.0, 1.0 - exp(-14.0 * delta))
+	for u in _upper:
+		u[0].position = u[1] + Vector3(0.0, -0.22 * _crouch - 0.08 * _dig_vis, 0.18 * _dig_vis)
+	_rig.rotation = Vector3(0.26 * _dig_vis, 0, _lean * 0.45 if state == RIDING else 0.0)
+	_spray.emitting = state == RIDING and v > 5.0 and (absf(_steer) > 0.3 or _dig_vis > 0.3)
 	_update_highlight(delta)
 
 
@@ -350,16 +453,15 @@ func _build_rig() -> void:
 	var torso := CapsuleMesh.new()
 	torso.radius = 0.17
 	torso.height = 0.7
-	_part(torso, suit, Vector3(0.05, 1.05, 0), Vector3(0, 0, -0.25))
-
 	var head := SphereMesh.new()
 	head.radius = 0.12
 	head.height = 0.24
-	_part(head, skin, Vector3(0.12, 1.5, -0.05))
-
 	var arms := BoxMesh.new()
 	arms.size = Vector3(0.09, 0.09, 1.25)
-	_part(arms, suit, Vector3(0.05, 1.22, 0), Vector3(0.15, 0, 0))
+	for m in [_part(torso, suit, Vector3(0.05, 1.05, 0), Vector3(0, 0, -0.25)),
+			_part(head, skin, Vector3(0.12, 1.5, -0.05)),
+			_part(arms, suit, Vector3(0.05, 1.22, 0), Vector3(0.15, 0, 0))]:
+		_upper.append([m, m.position])
 
 	# barrel highlight materials (drawn on top of everything, incl. the lip)
 	_xray = StandardMaterial3D.new()

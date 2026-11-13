@@ -17,7 +17,7 @@ func _initialize() -> void:
 func _run() -> void:
 	var main: Node = load("res://main.tscn").instantiate()
 	root.add_child(main)
-	main.autopilot = true   # set after _ready, which reads it from the command line
+	main.use_autopilot()   # after _ready, which reads the command line
 	var start_x: float = main.surfer.x
 	for i in FRAMES:
 		await process_frame

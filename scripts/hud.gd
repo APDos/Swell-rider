@@ -7,7 +7,9 @@ var msg_label: Label
 var warn_label: Label
 var barrel_label: Label
 var depth_bar: ProgressBar
+var pump_label: Label
 var _popup_t := 0.0
+var _pump_t := 0.0
 
 
 func _ready() -> void:
@@ -15,6 +17,9 @@ func _ready() -> void:
 	score_label.position = Vector2(28, 18)
 	speed_label = _mk(22)
 	speed_label.position = Vector2(30, 70)
+	pump_label = _mk(24)
+	pump_label.position = Vector2(30, 102)
+	pump_label.modulate.a = 0.0
 
 	popup_label = _mk(46, true)
 	popup_label.offset_bottom = -440
@@ -42,7 +47,7 @@ func _ready() -> void:
 	warn_label = _mk(26, true)
 	warn_label.offset_top = 380
 	warn_label.add_theme_color_override("font_color", Color(1.0, 0.75, 0.3))
-	warn_label.text = "Section ahead — build speed!"
+	warn_label.text = "Section ahead — pump for speed!"
 	msg_label = _mk(38, true)
 
 	var help := _mk(16)
@@ -51,7 +56,7 @@ func _ready() -> void:
 	help.offset_left = 28
 	help.offset_top = -44
 	help.offset_bottom = -14
-	help.text = "↑/↓ or W/S: carve up / down the face   Space: pump   In the air ←/→: spin   Hold R: restart   Esc: quit"
+	help.text = "↑ rise up the face   ↓ hold to pump down it   ← dig the tail (stall)   In the air ←/→: spin   Hold R: restart   Esc: quit"
 	help.modulate.a = 0.8
 
 
@@ -73,6 +78,24 @@ func _process(dt: float) -> void:
 	if _popup_t > 0.0:
 		_popup_t -= dt
 		popup_label.modulate.a = clampf(_popup_t / 0.4, 0.0, 1.0)
+	if _pump_t > 0.0:
+		_pump_t -= dt
+		pump_label.modulate.a = clampf(_pump_t / 0.3, 0.0, 1.0)
+
+
+## Quick read on each pump so players can learn what a good one feels like.
+func pump_feedback(quality: float) -> void:
+	if quality >= 0.9:
+		pump_label.text = "Perfect pump"
+		pump_label.add_theme_color_override("font_color", Color(0.45, 1.0, 0.55))
+	elif quality >= 0.6:
+		pump_label.text = "Good pump"
+		pump_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.35))
+	else:
+		pump_label.text = "Pump"
+		pump_label.add_theme_color_override("font_color", Color(0.85, 0.9, 0.95))
+	_pump_t = 0.9
+	pump_label.modulate.a = 1.0
 
 
 func set_stats(score: float, best: float, kmh: float, mult: float) -> void:

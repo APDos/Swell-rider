@@ -5,6 +5,9 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 GODOT="${GODOT:-godot}"
+# A test that hits a script error never reaches quit() and would hang, so every
+# run gets a time limit.
+TIMEOUT="${TEST_TIMEOUT:-180}"
 
 if [[ -n "${DISPLAY:-}" ]]; then GPU_PREFIX=(); else GPU_PREFIX=(xvfb-run -a); fi
 
@@ -12,11 +15,12 @@ failed=0
 run() {
 	local name="$1"; shift
 	local out status
-	out="$("$@" 2>&1)"; status=$?
+	out="$(timeout "$TIMEOUT" "$@" 2>&1)"; status=$?
+	[[ $status -eq 124 ]] && out+=$'\n'"(timed out after ${TIMEOUT}s)"
 	# Godot keeps going after a script error, so check the log as well as the exit code.
 	if [[ $status -ne 0 ]] || grep -qE "SCRIPT ERROR|Parse Error|SHADER ERROR|Failed to compile" <<<"$out"; then
 		echo "FAIL $name"
-		grep -vE "^ALSA lib|audio|V-Sync|set_use_vsync|status < 0" <<<"$out" | sed 's/^/    /'
+		grep -vE "^ALSA lib|audio|V-Sync|set_use_vsync|status < 0|mesh_get_surface_count|Parameter \"m\" is null" <<<"$out" | sed 's/^/    /'
 		failed=1
 	else
 		grep -E "^PASS" <<<"$out" || echo "PASS $name"
@@ -27,10 +31,11 @@ run import          "$GODOT" --headless --path . --import
 run wave_model      "$GODOT" --headless --path . -s res://tests/test_wave_model.gd
 run smoke           "$GODOT" --headless --fixed-fps 60 --path . -s res://tests/test_smoke.gd
 run controls        "$GODOT" --headless --fixed-fps 60 --path . -s res://tests/test_controls.gd
+run pump            "$GODOT" --headless --fixed-fps 60 --path . -s res://tests/test_pump.gd
 # The same 5 s ride must end in exactly the same state at any frame rate.
 fr_ref=""
 for fps in 30 60 144; do
-	out="$("$GODOT" --headless --fixed-fps "$fps" --path . -s res://tests/test_framerate.gd 2>&1)"
+	out="$(timeout "$TIMEOUT" "$GODOT" --headless --fixed-fps "$fps" --path . -s res://tests/test_framerate.gd 2>&1)"
 	st="$(grep -E "^STATE" <<<"$out")"
 	if [[ -z "$st" ]] || grep -qE "SCRIPT ERROR|Parse Error" <<<"$out"; then
 		echo "FAIL framerate ($fps fps run did not finish)"; sed 's/^/    /' <<<"$out"; failed=1; fr_ref="x"; break

@@ -9,6 +9,7 @@ const WaveScript := preload("res://scripts/wave.gd")
 const SurferScript := preload("res://scripts/surfer.gd")
 const HudScript := preload("res://scripts/hud.gd")
 const Controls := preload("res://scripts/controls.gd")
+const Autopilot := preload("res://scripts/autopilot.gd")
 
 enum { PLAYING, WIPEOUT }
 
@@ -33,6 +34,9 @@ var barrel_max_depth := 0.0
 
 # dev / testing: run with `-- --autopilot --shot=res://shot.png`
 var autopilot := false
+## Anything with steer(surfer) -> float (see autopilot.gd). When set, it drives
+## the surfer instead of the controls. --autopilot sets one; tests plug in others.
+var rider = null
 var barrel_test := false  # dev: pins the curl just behind the surfer
 var _look := Vector3.ZERO
 var shot_path := ""
@@ -47,6 +51,8 @@ func _ready() -> void:
 	randomize()
 	var args := OS.get_cmdline_user_args()
 	autopilot = "--autopilot" in args
+	if autopilot:
+		rider = Autopilot.new()
 	barrel_test = "--barreltest" in args
 	for a in args:
 		if a.begins_with("--shot="):
@@ -73,6 +79,7 @@ func _ready() -> void:
 	add_child(surfer)
 	surfer.trick_landed.connect(_on_trick)
 	surfer.wiped_out.connect(_on_wipeout)
+	surfer.pumped.connect(func(q: float): hud.pump_feedback(q))
 
 	curl_spray = _make_curl_spray()
 	add_child(curl_spray)
@@ -157,6 +164,8 @@ func _reset() -> void:
 	wave.curl_x = 0.0
 	_schedule_closeout()
 	surfer.reset(13.0)
+	if rider != null and rider.has_method("reset"):
+		rider.reset()
 	_prev_curl = wave.curl_x
 	_restart_held = 0.0
 	hud.hide_message()
@@ -169,28 +178,34 @@ func _schedule_closeout() -> void:
 	wave.closeout = Vector3(x0, x0 + randf_range(12.0, 24.0), 0.95)
 
 
-## Riding: up/down carves up/down the face. In the air left/right spins, and
-## so does up/down, but only once it has been let go after takeoff: holding up
-## to hit the lip shouldn't also spin you into a bad landing.
+## Riding: up/down carves up/down the face (holding down is a pump push).
+## In the air, left/right or up/down spins, but only once every key held through
+## takeoff has been let go: holding up to hit the lip, or a stall into a launch,
+## shouldn't also spin you into a bad landing.
 func _input_steer() -> float:
 	var carve := Input.get_axis("carve_down", "carve_up")
+	var side := Input.get_axis("spin_right", "spin_left")
 	if surfer.state != surfer.AIR:
-		_spin_latched = absf(carve) > 0.1
+		_spin_latched = absf(carve) > 0.1 or absf(side) > 0.1
 		return carve
-	if _spin_latched and absf(carve) < 0.1:
+	if _spin_latched and absf(carve) < 0.1 and absf(side) < 0.1:
 		_spin_latched = false
-	var s := Input.get_axis("spin_right", "spin_left")
-	if not _spin_latched:
-		s += carve
-	return clampf(s, -1.0, 1.0)
+	if _spin_latched:
+		return 0.0
+	return clampf(side + carve, -1.0, 1.0)
 
 
-func _autopilot_steer() -> float:
+func use_autopilot() -> void:
+	autopilot = true
+	rider = Autopilot.new()
+
+
+## --barreltest: hold a line mid-face with the curl pinned just behind.
+func _barrel_test_steer() -> float:
 	if surfer.state == surfer.AIR:
-		return 1.0
-	var tt := 0.45 if barrel_test else 0.62
-	var target_phi: float = clampf((tt - surfer.t) * 2.5, -0.7, 0.7) - 0.1
-	return clampf((target_phi - surfer.phi) * 3.0, -1.0, 1.0)
+		return 0.0
+	var target_phi: float = clampf((0.45 - surfer.t) * 2.5, -0.7, 0.7) - 0.1
+	return clampf((target_phi - surfer.phi) * 3.0, -0.2, 1.0)
 
 
 func _physics_process(dt: float) -> void:
@@ -198,7 +213,7 @@ func _physics_process(dt: float) -> void:
 		get_tree().quit()
 
 	if state == WIPEOUT:
-		if Input.is_action_just_pressed("restart") or Input.is_action_just_pressed("pump"):
+		if Input.is_action_just_pressed("restart") or Input.is_action_just_pressed("ui_accept"):
 			_reset()
 			return
 	elif Input.is_action_pressed("restart"):
@@ -209,15 +224,22 @@ func _physics_process(dt: float) -> void:
 	else:
 		_restart_held = 0.0
 
-	var steer := _autopilot_steer() if autopilot else _input_steer()
-	var pump := Input.is_action_just_pressed("pump")
+	var steer: float
+	var stall := 0.0
+	if barrel_test:
+		steer = _barrel_test_steer()
+	elif rider != null:
+		steer = rider.steer(surfer)
+	else:
+		steer = _input_steer()
+		stall = Input.get_action_strength("stall")
 
 	_prev_curl = wave.curl_x
 	if barrel_test and state == PLAYING:
 		wave.curl_x = surfer.x - 3.0
 	else:
 		_update_curl(dt)
-	surfer.step(dt, steer, pump)
+	surfer.step(dt, steer, stall)
 
 	if state == PLAYING:
 		ride_time += dt

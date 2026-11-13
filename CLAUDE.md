@@ -18,13 +18,21 @@ Rules:
 - When state jumps (reset, landing), update the `_p_*` snapshots in `surfer.gd` too, or the next frame blends across the jump.
 - Read input through the action names in `scripts/controls.gd` (`carve_up`, `pump`, ...), never raw keys.
 
+## Pumping and stalling (surfer.gd)
+Design goals: easy to pick up, hard to master, and it should feel right to real surfers.
+- Pumping is the main source of speed. `WAVE_PUSH` alone can't keep up with the curl. A push is carve-down held past `PUSH_THRESHOLD`, and it drives you down the face (`PUMP_POWER`) while heading down the steep part, until the leg stroke (`PUSH_STROKE`) runs out.
+- Pump quality is set when the push starts (`_score_pump`): height on the face, rise since the last push, and rhythm. The range is `PUMP_MIN_QUALITY` (1/3) to 1.0, so a perfect pump is 3x a sloppy one.
+- The stall is physical drag on the tail: decel = `STALL_DRAG * tail_dig * v²`. Never use a flat speed penalty.
+- `test_pump` locks in the balance: no pumping gets caught, sloppy pumping just keeps up, good pumping is clearly faster, the pump ratio is 3x, and the stall scales with v². If you retune, run `godot --headless --fixed-fps 60 --path . -s res://tests/test_pump.gd -- --report` to see the numbers.
+
 ## Tests
-`tests/run_tests.sh` runs everything (about 15 seconds). Run it before every push. GitHub Actions isn't enabled on this repo, so `.github/workflows/tests.yml` doesn't run. It needs `godot` on PATH (or `GODOT=...`), plus `xvfb-run` when there is no display.
+`tests/run_tests.sh` runs everything (under a minute). Run it before every push. GitHub Actions isn't enabled on this repo, so `.github/workflows/tests.yml` doesn't run. It needs `godot` on PATH (or `GODOT=...`), plus `xvfb-run` when there is no display.
 - `test_wave_parity`: GPU vs CPU wave shape, and uniform coverage.
 - `test_wave_model`: `face_up` and `slope_at` agree with `face_point`.
 - `test_smoke`: the main scene rides for 5 s of game time on autopilot. The runner fails on any script error.
 - `test_controls`: scripted input through the real actions (holding up through an air doesn't spin you; restart needs a hold mid-ride).
 - `test_framerate`: the same 5 s ride ends in exactly the same state at 30, 60 and 144 fps.
+- `test_pump`: scripted riders on the real game loop check the pump and stall balance (see above).
 - The `mesh_get_surface_count` errors in headless runs come from Godot's dummy renderer and are harmless.
 
 ## Coordinates

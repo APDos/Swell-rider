@@ -15,7 +15,7 @@ func _initialize() -> void:
 func _run() -> void:
 	var main: Node = load("res://main.tscn").instantiate()
 	root.add_child(main)
-	main.autopilot = true
+	main.use_autopilot()   # after _ready, which reads the command line
 	seed(1234)
 	main._reset()
 	for i in TICKS:

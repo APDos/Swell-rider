@@ -27,13 +27,15 @@ func _run() -> void:
 
 func _fresh() -> void:
 	seed(99)
+	main.rider = null
 	main._reset()
-	for a in ["carve_up", "carve_down", "spin_left", "spin_right", "pump", "restart"]:
+	for a in ["carve_up", "carve_down", "spin_left", "spin_right", "stall", "restart"]:
 		Input.action_release(a)
 	await physics_frame
 
 
-## Holding up to hit the lip, and still holding it in the air, must not spin
+## After pumping up speed, holding up to hit the lip, and still holding it in
+## the air, must not spin
 ## you at all. (Without the latch it gives a random spin: an accidental 360 or
 ## an under-rotated wipeout, depending on speed.)
 func _held_up_air_lands_clean() -> void:
@@ -45,6 +47,11 @@ func _held_up_air_lands_clean() -> void:
 	var launched := false
 	var landed := false
 	var max_spin := 0.0
+	# Airs need speed, so pump some up on autopilot first, then take over.
+	main.rider = main.Autopilot.new()
+	for i in 240:
+		await physics_frame
+	main.rider = null
 	Input.action_press("carve_up")
 	for i in 600:
 		await physics_frame

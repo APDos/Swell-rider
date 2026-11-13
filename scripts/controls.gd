@@ -12,7 +12,9 @@ const BINDINGS := {
 	"carve_down": [[KEY_DOWN, KEY_S], [JOY_BUTTON_DPAD_DOWN], [[JOY_AXIS_LEFT_Y, 1.0]]],
 	"spin_left":  [[KEY_LEFT, KEY_A], [JOY_BUTTON_DPAD_LEFT], [[JOY_AXIS_LEFT_X, -1.0]]],
 	"spin_right": [[KEY_RIGHT, KEY_D], [JOY_BUTTON_DPAD_RIGHT], [[JOY_AXIS_LEFT_X, 1.0]]],
-	"pump":       [[KEY_SPACE], [JOY_BUTTON_A], []],
+	# Riding toward the curl (left) puts weight on the tail. Same keys as spin_left,
+	# which only applies in the air.
+	"stall":      [[KEY_LEFT, KEY_A], [JOY_BUTTON_DPAD_LEFT], [[JOY_AXIS_LEFT_X, -1.0]]],
 	"restart":    [[KEY_R, KEY_ENTER, KEY_KP_ENTER], [JOY_BUTTON_START], []],
 	"quit":       [[KEY_ESCAPE], [JOY_BUTTON_BACK], []],
 }
