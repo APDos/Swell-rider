@@ -42,6 +42,7 @@ const TURN_RESPONSE := 9.0  # 1/s: how quickly a turn builds up and eases off
 const RECENTER := 0.7    # 1/s: with no steer input, heading eases back toward straight
 const MAX_PHI := 1.35       # rad: steepest normal carve up/down the face (a turn-around goes past it)
 # cutbacks and the flats
+const CUTBACK_TURN := 5.5     # rad/s the nose comes around at in a cutback (a normal carve is TURN)
 const CARVE_DRAG := 0.03      # rail drag while turning around: decel = this * turn rate * v
 const CUTBACK_LIFT := 0.3     # near vertical in a turn-around, how much of the motion goes up/down the face: the board is laid over on its rail, so the arc is wide along the line and shallow on the face
 const AIM_GAIN := 4.0         # 1/s: how eagerly the nose swings to an aimed direction (→, →+↑/↓)
@@ -245,10 +246,12 @@ func _step_riding(dt: float, steer: float, stall: float, pump: float, side: floa
 
 	var target_rate: float
 	if cutting:
-		target_rate = signf(steer) * TURN * absf(steer)   # drive the nose round toward the back arrow
+		target_rate = signf(steer) * CUTBACK_TURN * absf(steer)   # drive the nose round toward the back arrow
 	elif ahead > 0.5:
 		var aim := signf(steer) * PI / 4.0 if absf(steer) > 0.3 else 0.0   # → aims level, →+↑/↓ 45° up/down
-		target_rate = clampf((aim - phi) * AIM_GAIN, -TURN, TURN)
+		# Coming out of a turn-around the nose keeps the cutback's pace.
+		var cap := CUTBACK_TURN if absf(phi) > MAX_PHI else TURN
+		target_rate = clampf((aim - phi) * AIM_GAIN, -cap, cap)
 	else:
 		target_rate = steer * TURN
 	# Turns build up and ease off rather than switching on and off instantly.
