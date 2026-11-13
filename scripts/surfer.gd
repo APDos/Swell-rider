@@ -13,9 +13,12 @@ extends Node3D
 ## Steering (carve up/down) only chooses your line; it isn't part of the pump.
 ## The tail stall (stall action, toward the curl) digs the tail in: water drag
 ## that grows with speed squared, so it brakes hard when you're fast.
-## Cutbacks: ← with ↑ (or ↓) swings the board up and around (or low) until it
-## points back at the curl; → with ↑/↓ swings it back down the line. Hit the
-## whitewater while facing back and the foam bounces you around (the rebound).
+## Steering: the arrows point the nose. ↑/↓ carve up/down the face. The arrow
+## pointing behind you (← riding down the line, → once you face the curl) is
+## the stall on its own; with ↑/↓ it drives the nose up (or down) past vertical
+## and around toward it: a cutback, or back down the line. Nothing turns you
+## unless you hold it. The whitewater stops you and, once you've turned
+## yourself back around in it, throws you forward (the rebound).
 ## Nothing holds you on the face: carve down past the trough and you ride out
 ## onto the flat water in front of the wave, until you've gone too far to get back.
 ##
@@ -39,15 +42,14 @@ const TURN_RESPONSE := 9.0  # 1/s: how quickly a turn builds up and eases off
 const RECENTER := 0.7    # 1/s: with no steer input, heading eases back toward straight
 const MAX_PHI := 1.35       # rad: steepest normal carve up/down the face (a turn-around goes past it)
 # cutbacks and the flats
-const CUTBACK_TURN := 3.2     # rad/s the board swings around in a cutback or a rebound
-const CARVE_DRAG := 0.06      # rail drag while swinging around: decel = this * swing rate * v
-const CUTBACK_LIFT := 0.4     # how much of a turn-around's swing goes up/down the face: the board is laid over on its rail, so the arc is wide along the line and shallow on the face
+const CARVE_DRAG := 0.03      # rail drag while turning around: decel = this * turn rate * v
+const CUTBACK_LIFT := 0.3     # near vertical in a turn-around, how much of the motion goes up/down the face: the board is laid over on its rail, so the arc is wide along the line and shallow on the face
+const AIM_GAIN := 4.0         # 1/s: how eagerly the nose swings to an aimed direction (→, →+↑/↓)
 const FOAM_HOLD := 1.0        # m behind the curl the whitewater shoves you along at, rather than letting you plough deeper
 const FOAM_MAX := 2.0         # s in the whitewater before it buries you
 const FOAM_DRAG := 1.5        # 1/s: pushing back into the whitewater stops you (decel = this * v)
 const FOAM_SPEED := 13.0      # m/s the whitewater throws you forward at once you've rebounded (faster than the curl peels, so you get out)
 const REBOUND_GRACE := 2.0    # s from hitting the foam you can stay in it while you come around and get going
-const CUTBACK_EXIT := 0.35    # rad past level a swing finishes on: an up-and-around ends aimed down (at the foam), a low one aimed up
 const FLATS_OUT := 0.8        # face run-outs out in front of the trough before you've left the wave behind
 const BOG := 3.0              # m/s²: bogging low in the trough and out on the flats
 # pumping
@@ -121,8 +123,7 @@ var _wipe_vel := Vector3.ZERO
 var _wipe_spin := Vector3.ZERO
 
 var facing := 1.0         # +1 riding down the line (right), -1 turned back toward the curl
-var turning := 0          # 0, or a turn-around in progress: +1 swinging up and around, -1 low
-var _turn_to := 1.0       # facing the current turn-around ends on
+var cutting := false      # holding the back arrow with ↑/↓: driving the nose around past vertical
 var _cut_back := false    # turned to face the curl since you last rode down the line
 var _rebounded := false   # this cutback bounced off the whitewater
 var _rebound_time := -10.0
@@ -171,8 +172,7 @@ func reset(start_x: float) -> void:
 	spin = 0.0
 	turn_rate = 0.0
 	facing = 1.0
-	turning = 0
-	_turn_to = 1.0
+	cutting = false
 	_cut_back = false
 	_rebounded = false
 	_rebound_time = -10.0
@@ -233,45 +233,56 @@ func _step_riding(dt: float, steer: float, stall: float, pump: float, side: floa
 	var flen: float = wave.face_length(x)
 	var in_foam := d < 0.0
 
-	# ← or → together with a carve turns you around: a cutback toward the curl,
-	# or back down the line. The carve picks the arc (↑ up and around, ↓ low).
-	var combo := absf(side) > 0.5 and absf(steer) > 0.3
-	if combo and turning == 0 and signf(side) != facing:
-		_start_turn(signf(side), int(signf(steer)))
-	# Facing back when you reach the whitewater: the foam bounces you around.
-	# It swings you up into the foam, or round low if you hit it high on the face.
-	if in_foam and facing < 0.0 and turning == 0:
-		_start_turn(1.0, 1 if t < 0.5 else -1)
-		_rebounded = true
-		_rebound_time = _clock
-	var swing := 0.0
-	var rebound_turn := _turn_to > 0.0 and _clock - _rebound_time < REBOUND_GRACE
-	if turning != 0 and (combo or rebound_turn):
-		swing = _swing(dt)
-	elif turning != 0:
-		turning = 0  # let go mid-turn: the board carries on from where it got to
-	if combo:
-		stall = 0.0  # the back hand is turning you, not stalling
+	# The arrows point the nose. "back" is the arrow pointing behind you.
+	var back := clampf(-side * facing, 0.0, 1.0)
+	var ahead := clampf(side * facing, 0.0, 1.0)
+	cutting = back > 0.5 and absf(steer) > 0.3
+	# The back arrow on its own is the stall (the stall action is ←, so when
+	# you face the curl it's → instead). With ↑/↓ it's turning you, not stalling.
+	stall = (stall if facing > 0.0 else back) if not cutting else 0.0
+	if in_foam and facing < 0.0 and _foam_time == 0.0:
+		_rebound_time = _clock   # hit the whitewater facing back: you've got a moment to turn off it
 
-	if swing == 0.0:
-		# Turns build up and ease off rather than switching on and off instantly.
-		turn_rate = lerpf(turn_rate, steer * TURN, 1.0 - exp(-TURN_RESPONSE * dt))
-		phi += turn_rate * dt
-		if absf(steer) < 0.1:
-			phi = lerpf(phi, 0.0, 1.0 - exp(-RECENTER * dt))
-		if absf(phi) > MAX_PHI:
-			phi = move_toward(phi, signf(phi) * MAX_PHI, TURN * dt)  # ease back from a half-finished turn-around
+	var target_rate: float
+	if cutting:
+		target_rate = signf(steer) * TURN * absf(steer)   # drive the nose round toward the back arrow
+	elif ahead > 0.5:
+		var aim := signf(steer) * PI / 4.0 if absf(steer) > 0.3 else 0.0   # → aims level, →+↑/↓ 45° up/down
+		target_rate = clampf((aim - phi) * AIM_GAIN, -TURN, TURN)
+	else:
+		target_rate = steer * TURN
+	# Turns build up and ease off rather than switching on and off instantly.
+	turn_rate = lerpf(turn_rate, target_rate, 1.0 - exp(-TURN_RESPONSE * dt))
+	var was_carving := absf(phi) <= MAX_PHI
+	phi += turn_rate * dt
+	if not cutting and was_carving:
+		phi = clampf(phi, -MAX_PHI, MAX_PHI)   # a normal carve stops at the cap
+	if absf(phi) >= PI / 2.0:
+		# Past vertical: you're now facing the other way. phi is measured from
+		# the facing direction, so mirror it, and the same rotation now runs it back.
+		facing = -facing
+		phi = signf(phi) * (PI - absf(phi))
+		turn_rate = -turn_rate
+		if facing > 0.0 and in_foam and _clock - _rebound_time < REBOUND_GRACE:
+			_rebounded = true
+	var turning_around := cutting or absf(phi) > MAX_PHI
+	if absf(steer) < 0.1 and ahead < 0.5:
+		phi = lerpf(phi, 0.0, 1.0 - exp(-RECENTER * dt))
+	if not turning_around and absf(phi) > MAX_PHI:
+		phi = move_toward(phi, signf(phi) * MAX_PHI, TURN * dt)
 
 	# The pump adds its own small up-then-down motion on top of the steered line.
 	var pump_a := _pump_accel(dt, pump, flen)
 	var h := heading()
 
-	var lift := CUTBACK_LIFT if turning != 0 else 1.0
+	# Laid over on the rail through a turn-around: the arc stays shallow on the face.
+	var lift := lerpf(1.0, CUTBACK_LIFT, smoothstep(0.0, 0.6, absf(phi))) if turning_around else 1.0
 	var pocket := 0.4 + 1.2 * exp(-maxf(d, 0.0) / 18.0)
 	var a := -G * sin(slope) * sin(h) * lift + WAVE_PUSH * sin(slope) * pocket - C1 * v - C2 * v * v
 	if t < 0.06:
 		a -= BOG  # bogging in the trough and out on the flats
-	a -= CARVE_DRAG * absf(swing) * v
+	if turning_around:
+		a -= CARVE_DRAG * absf(turn_rate) * v
 	if in_foam and facing < 0.0:
 		a -= FOAM_DRAG * v
 	a += pump_a
@@ -291,8 +302,8 @@ func _step_riding(dt: float, steer: float, stall: float, pump: float, side: floa
 	else:
 		_foam_time = 0.0
 
-	if t >= 1.0 and turning != 0:
-		t = 1.0  # swinging around off the top: carry on with the turn
+	if t >= 1.0 and turning_around:
+		t = 1.0  # turning around off the top: carry on with the turn
 	elif t >= 1.0:
 		if h > 0.6 and v > 9.0:
 			_launch()
@@ -316,10 +327,10 @@ func _step_riding(dt: float, steer: float, stall: float, pump: float, side: floa
 		barrel_depth = 0.0
 
 	if in_foam:
-		# The whitewater only gives you a chance when you're turning off it low
-		# on the face: rebounding, or just after while you get going again.
-		var rebounding := turning != 0 or _clock - _rebound_time < REBOUND_GRACE
-		if (t > 0.8 and turning == 0) or not rebounding:
+		# The whitewater only gives you a chance if you hit it facing back and
+		# turn off it (low on the face) before it gets you.
+		var rebounding := _clock - _rebound_time < REBOUND_GRACE
+		if (t > 0.8 and not turning_around) or not rebounding:
 			_wipeout("The whitewater caught you" if t < 0.3 else "The lip landed on you")
 			return
 		if _foam_time > FOAM_MAX:
@@ -328,39 +339,14 @@ func _step_riding(dt: float, steer: float, stall: float, pump: float, side: floa
 	if t < -FLATS_OUT:
 		_wipeout("Rode off the front of the wave")
 	elif v < MIN_SPEED:
-		_wipeout("Lost the wave")
-
-
-## Start swinging the board around to face to (+1 down the line, -1 at the
-## curl). arc +1 goes up and around (through pointing up the face), -1 low.
-func _start_turn(to: float, arc: int) -> void:
-	if arc == 0:
-		arc = 1
-	_turn_to = to
-	turning = arc
-
-
-## One tick of a turn-around. phi is measured from the facing direction, so the
-## swing runs phi out to vertical, flips facing, then brings phi back to level.
-## Returns the swing rate (rad/s, signed) for drag and drawing.
-func _swing(dt: float) -> float:
-	var dir := float(turning) if facing != _turn_to else -float(turning)
-	phi += dir * CUTBACK_TURN * dt
-	if facing != _turn_to and absf(phi) >= PI / 2.0:
-		facing = _turn_to
-		phi = signf(phi) * (PI - absf(phi))   # mirror past vertical into the new facing
-		turn_rate = 0.0
-	elif facing == _turn_to and float(turning) * phi <= -CUTBACK_EXIT:
-		turning = 0
-	turn_rate = dir * CUTBACK_TURN
-	return dir * CUTBACK_TURN
+		_wipeout("Buried in the whitewater" if in_foam else "Lost the wave")
 
 
 ## Cutback scoring: turning to face the curl, then back down the line.
 func _check_cutback() -> void:
 	if facing < 0.0:
 		_cut_back = true
-	elif _cut_back and turning == 0:
+	elif _cut_back:
 		_cut_back = false
 		if _rebounded:
 			trick_landed.emit("Roundhouse Cutback", 700)
@@ -620,7 +606,7 @@ func update_visual(delta: float) -> void:
 	for u in _upper:
 		u[0].position = u[1] + Vector3(0.0, -0.22 * _crouch - 0.08 * _dig_vis, 0.18 * _dig_vis)
 	_rig.rotation = Vector3(0.26 * _dig_vis, 0, _lean * 0.45 if state == RIDING else 0.0)
-	_spray.emitting = state == RIDING and v > 5.0 and (absf(_steer) > 0.3 or _dig_vis > 0.3 or turning != 0)
+	_spray.emitting = state == RIDING and v > 5.0 and (absf(_steer) > 0.3 or _dig_vis > 0.3 or cutting)
 	_update_highlight(delta)
 
 
