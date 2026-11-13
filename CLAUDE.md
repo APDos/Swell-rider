@@ -10,7 +10,8 @@ The GPU draws the wave and gameplay needs the same shape on the CPU, so the ride
 Rules:
 - **Tuning values live only in the `SHAPE` table in `wave.gd`.** `apply_to()` pushes them into the shader as uniforms. Never put a shape number in the shader: its shape uniforms deliberately have no defaults.
 - **Change a formula in both copies**, then run `tests/run_tests.sh`. `test_wave_parity` runs the shader functions on the GPU and checks them against `wave.gd`. It also fails if a shape uniform and a `SHAPE` key don't match up.
-- Visual-only shape (the back of the wave, the lip curtain, whitewater) stays in `wave.gdshader` and needs no CPU copy. If gameplay ever starts depending on it, move it into the include and mirror it.
+- The lip curtain (`lip_pos`) is in the include and mirrored too, because the CPU needs it to tell when the lip hides the surfer from the camera (`wave.lip_hides`, which turns on the x-ray glow). Its tuning is `lip_curl`, `lip_drop`, `lip_throw` in `SHAPE`.
+- Visual-only shape (the back of the wave, whitewater) stays in `wave.gdshader` and needs no CPU copy. If gameplay or drawing logic ever starts depending on it, move it into the include and mirror it.
 
 ## Game loop and input
 - Gameplay (input, surfer physics, curl, scoring) runs only in `_physics_process`, at a fixed 60 ticks per second. Never put gameplay in `_process`: `test_framerate` fails if a ride differs between 30, 60 and 144 fps.
@@ -35,8 +36,8 @@ Design goals: easy to pick up, hard to master, and it should feel right to real 
 
 ## Tests
 `tests/run_tests.sh` runs everything (under a minute). Run it before every push. GitHub Actions isn't enabled on this repo, so `.github/workflows/tests.yml` doesn't run. It needs `godot` on PATH (or `GODOT=...`), plus `xvfb-run` when there is no display. On macOS, run it with `DISPLAY=:0` set so the GPU parity test uses the real display; the runner falls back to perl when GNU `timeout` is missing.
-- `test_wave_parity`: GPU vs CPU wave shape, and uniform coverage.
-- `test_wave_model`: `face_up` and `slope_at` agree with `face_point`.
+- `test_wave_parity`: GPU vs CPU wave shape (face and lip curtain), and uniform coverage.
+- `test_wave_model`: `face_up` and `slope_at` agree with `face_point`; `lip_hides` catches a surfer behind the lip and never fires on the open face or out front.
 - `test_smoke`: the main scene rides for 5 s of game time on autopilot. The runner fails on any script error.
 - `test_controls`: scripted input through the real actions. Holding up through an air doesn't spin you, restart needs a hold mid-ride, carve-down never pumps, hold-then-release drives then rises (a tap is only a flick), a long hold settles on a lower line without snapping back, no input holds height, holding down rides out in front and off the wave, ← alone stalls, ←+↑ cuts back toward the barrel and →+↑ returns (scores a Cutback), and a low cutback rebounds off the whitewater.
 - `test_framerate`: the same 5 s ride ends in exactly the same state at 30, 60 and 144 fps.

@@ -2,6 +2,8 @@ extends SceneTree
 ## CPU-only checks on scripts/wave.gd: the derived helpers (face_up, slope_at)
 ## must agree with face_point, which is the function shared with the shader.
 ## If someone edits face_point and forgets the helpers, this fails.
+## Also checks lip_hides: the lip curtain hides a surfer high right by the curl
+## from a shore-side camera, but never one on the open face or out front.
 ##
 ##   godot --headless --path . -s res://tests/test_wave_model.gd
 
@@ -30,6 +32,7 @@ func _initialize() -> void:
 				_check(up.distance_to(tangent.normalized()) < TOL, "face_up", x, t, up, tangent.normalized())
 				var slope := atan2(tangent.y, -tangent.z)
 				_check(absf(wave.slope_at(x, t) - slope) < TOL, "slope_at", x, t, wave.slope_at(x, t), slope)
+	_check_lip_hides(wave)
 	wave.free()
 	if _failures == 0:
 		print("PASS test_wave_model")
@@ -37,6 +40,24 @@ func _initialize() -> void:
 	else:
 		printerr("FAIL test_wave_model: %d mismatches" % _failures)
 		quit(1)
+
+
+func _check_lip_hides(wave) -> void:
+	wave.base_height = 4.8
+	wave.curl_x = 0.0
+	wave.closeout = Vector3(1e6, 1e6 + 1.0, 0.0)
+	# Camera roughly where main.gd puts it: shore side, about mid-wave height.
+	var eye_for := func(x: float) -> Vector3: return Vector3(x - 1.0, 4.0, 18.0)
+	var up := Vector3(0, 0.8, 0)
+	var high_by_curl: Vector3 = wave.face_point(4.0, 0.85) + up
+	if not wave.lip_hides(eye_for.call(4.0), high_by_curl):
+		_failures += 1
+		printerr("  lip_hides: a surfer high on the face right by the curl should be behind the lip")
+	for p in [[40.0, 0.5], [40.0, 0.9], [4.0, -0.3], [80.0, 0.6]]:
+		var pt: Vector3 = wave.face_point(p[0], p[1]) + up
+		if wave.lip_hides(eye_for.call(p[0]), pt):
+			_failures += 1
+			printerr("  lip_hides: nothing should hide a surfer at x=%.0f t=%.2f" % [p[0], p[1]])
 
 
 func _check(ok: bool, what: String, x: float, t: float, got, want) -> void:

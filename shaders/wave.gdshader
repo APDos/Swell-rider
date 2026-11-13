@@ -1,8 +1,8 @@
 // Procedural breaking wave. The mesh is a flat grid where VERTEX.x = x along the
 // wave (local) and VERTEX.y = a 0..1 profile parameter. Everything else is computed
-// here. The rideable face comes from wave_shape.gdshaderinc, which is mirrored in
-// scripts/wave.gd and checked by tests/test_wave_parity.gd. The rest of this file
-// (back of the wave, lip curtain, whitewater, colour) only affects the visuals.
+// here. The rideable face and the lip curtain come from wave_shape.gdshaderinc,
+// which is mirrored in scripts/wave.gd and checked by tests/test_wave_parity.gd.
+// The rest of this file (back of the wave, whitewater, colour) only affects the visuals.
 shader_type spatial;
 render_mode cull_disabled;
 
@@ -41,13 +41,6 @@ vec3 body_pos(float x, float v) {
 	float bump = b * (0.35 * sin(wx * 1.3 + TIME * 3.0 + v * 20.0) + 0.25 * sin(wx * 2.7 - TIME * 4.0 + v * 37.0));
 	p.y += bump * 0.6 * smooth01(p.y / max(H, 0.01) * 3.0);
 	return p;
-}
-
-vec3 lip_pos(float x, float w) {
-	float H = height_at(x);
-	float k = k_at(x);
-	float th = w * 2.4 * k;
-	return vec3(x, H - 0.55 * H * (1.0 - cos(th)), 1.15 * H * sin(th));
 }
 
 void vertex() {

@@ -25,6 +25,9 @@ const SHAPE := {
 	"closeout_ramp": 6.0,      # m: blend at the ends of a closeout section
 	"face_len_mellow": 1.5,    # face run-out / height when k = 0
 	"face_len_steep": 0.75,    # face run-out / height when k = 1
+	"lip_curl": 2.4,           # rad the lip curtain curls over at k = 1
+	"lip_drop": 0.55,          # lip curtain drop / height per unit of (1 - cos)
+	"lip_throw": 1.15,         # lip curtain throw toward shore / height per unit of sin
 }
 const P: float = SHAPE["shape_p"]
 const X_BEHIND := 50.0
@@ -138,6 +141,12 @@ func k_at(x: float) -> float:
 func lf_at(x: float) -> float:
 	return lerpf(SHAPE["face_len_mellow"], SHAPE["face_len_steep"], k_at(x)) * height_at(x)
 
+## Point on the pitching lip curtain. w: 0 = top of the lip, 1 = its tip.
+func lip_pos(x: float, w: float) -> Vector3:
+	var h := height_at(x)
+	var th: float = w * SHAPE["lip_curl"] * k_at(x)
+	return Vector3(x, h - SHAPE["lip_drop"] * h * (1.0 - cos(th)), SHAPE["lip_throw"] * h * sin(th))
+
 ## Point on the rideable face. t: 0 = trough, 1 = lip line.
 func face_point(x: float, t: float) -> Vector3:
 	var h := height_at(x)
@@ -159,6 +168,23 @@ func slope_at(x: float, t: float) -> float:
 		return 0.0
 	var h := height_at(x)
 	return atan(h * P * pow(maxf(t, 0.02), P - 1.0) / lf_at(x))
+
+## True when the lip curtain at the target's x is between eye and target, i.e.
+## the lip hides it from the camera. Checked in the y-z slice at target.x (the
+## camera looks side-on), against the curtain as a polyline.
+func lip_hides(eye: Vector3, target: Vector3) -> bool:
+	var x := target.x
+	if k_at(x) < 0.15:
+		return false  # no real curtain to hide behind
+	var a := Vector2(eye.z, eye.y)
+	var b := Vector2(target.z, target.y)
+	var prev := lip_pos(x, 0.0)
+	for i in range(1, 13):
+		var cur := lip_pos(x, float(i) / 12.0)
+		if Geometry2D.segment_intersects_segment(a, b, Vector2(prev.z, prev.y), Vector2(cur.z, cur.y)) != null:
+			return true
+		prev = cur
+	return false
 
 func face_length(x: float) -> float:
 	var h := height_at(x)

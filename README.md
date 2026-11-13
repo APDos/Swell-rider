@@ -39,6 +39,7 @@ Side-view wave riding in Godot 4.3+. Everything (wave, surfer, HUD) is built in 
 - **Cutback** (← + ↑ or ← + ↓): when you've run out onto the shoulder, swing the board around to point back at the barrel, back toward the power. The swing costs some speed and is shallow on the face (the board is laid over on its rail). Turn back down the line with → + ↑/↓ for a **Cutback**. Or aim at the whitewater: hit it while facing back and the foam bounces you around and throws you out ahead of the curl, a **Roundhouse Cutback**. Hit the foam high near the lip, or sit in it too long, and it gets you.
 - Points come from speed, multiplied by how close you are to the pocket (up to x3).
 - **Off the Lip**: hit the top fast at a moderate angle. **Air**: hit the top fast and steep (heading > ~35°, speed > ~32 km/h). You'll need to pump up that speed first.
+- Whenever the lip hangs between the camera and you (riding high by the curl, or in the whitewater), your surfer shows through it as a glowing silhouette.
 - **Barrel**: stay mid-face just ahead of the curl where the lip is pitching. When the lip covers you, your surfer glows through the water, going from cyan to gold as you get deeper. A depth meter shows the same thing. Deeper barrels score more per second.
 - **Closeout sections**: a steep section appears ahead ("Section ahead — pump for speed!"). The curl races through it at 28 m/s, so you need to have pumped your way past it before the curl gets there.
 

@@ -21,6 +21,8 @@ const int Q_FACE_Z = 2;
 const int Q_K = 3;
 const int Q_HEIGHT = 4;
 const int Q_BROKEN = 5;
+const int Q_LIP_Y = 6;    // lip_pos with w = t
+const int Q_LIP_Z = 7;
 
 void fragment() {
 	ivec2 px = ivec2(FRAGCOORD.xy);
@@ -35,6 +37,8 @@ void fragment() {
 	else if (q == Q_K) { val = k_at(x); }
 	else if (q == Q_HEIGHT) { val = height_at(x); }
 	else if (q == Q_BROKEN) { val = broken_amt(x); }
+	else if (q == Q_LIP_Y) { val = lip_pos(x, t).y; }
+	else if (q == Q_LIP_Z) { val = lip_pos(x, t).z; }
 	uint b = floatBitsToUint(val);
 	COLOR = vec4(float((b >> 24u) & 255u), float((b >> 16u) & 255u), float((b >> 8u) & 255u), float(b & 255u)) / 255.0;
 }

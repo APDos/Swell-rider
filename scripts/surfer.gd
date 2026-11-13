@@ -140,6 +140,7 @@ var _p_wipe_pos := Vector3.ZERO
 var _p_wipe_rot := Vector3.ZERO
 var _snap_visual := true  # skip smoothing on the next frame (after a reset)
 var _overlay_on := false
+var lip_hidden := false   # the lip curtain is between the camera and the surfer (drawn x-ray)
 
 ## Surfer x as drawn this frame (blended between ticks). Use it for anything
 ## visual, such as the camera, so it doesn't stutter.
@@ -624,12 +625,18 @@ func update_visual(delta: float) -> void:
 
 
 ## Barrel highlight: an x-ray silhouette drawn through the lip plus a halo,
-## shifting cyan -> gold as you get deeper. Also shown (cyan) while you're in
-## the whitewater during a rebound, so you can see yourself through the foam.
+## shifting cyan -> gold as you get deeper. Also shown (cyan) whenever the lip
+## curtain hangs between the camera and you, or you're in the whitewater during
+## a rebound, so you can always see yourself.
 func _update_highlight(delta: float) -> void:
 	var target := barrel_depth if in_barrel else 0.0
 	if state == RIDING and _foam_time > 0.0:
-		target = 0.3  # in the whitewater: show the surfer through the foam
+		target = 0.45  # in the whitewater: show the surfer through the foam
+	# The lip hanging between the camera and you: show you through it.
+	var cam := get_viewport().get_camera_3d() if is_inside_tree() else null
+	lip_hidden = state != WIPEOUT and cam != null and wave.lip_hides(cam.global_position, global_position + global_transform.basis.y * 0.8)
+	if lip_hidden:
+		target = maxf(target, 0.45)
 	_glow = lerpf(_glow, target, 1.0 - exp(-13.0 * delta))
 	var on := _glow > 0.02
 	if on != _overlay_on:

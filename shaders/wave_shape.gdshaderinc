@@ -28,6 +28,9 @@ uniform float steep_decay;           // m: how fast steepness falls off ahead of
 uniform float closeout_ramp;         // m: blend at the ends of a closeout section
 uniform float face_len_mellow;       // face run-out / height when k = 0
 uniform float face_len_steep;        // face run-out / height when k = 1
+uniform float lip_curl;              // rad the lip curtain curls over at k = 1
+uniform float lip_drop;              // lip curtain drop / height per unit of (1 - cos)
+uniform float lip_throw;             // lip curtain throw toward shore / height per unit of sin
 
 float smooth01(float x) { x = clamp(x, 0.0, 1.0); return x * x * (3.0 - 2.0 * x); }
 
@@ -48,6 +51,14 @@ float k_at(float x) {
 }
 
 float lf_at(float x) { return mix(face_len_mellow, face_len_steep, k_at(x)) * height_at(x); }
+
+// Point on the pitching lip curtain. w: 0 = top of the lip, 1 = its tip. Drawn
+// as its own sheet; the CPU uses it to tell when the lip hides the surfer.
+vec3 lip_pos(float x, float w) {
+	float H = height_at(x);
+	float th = w * lip_curl * k_at(x);
+	return vec3(x, H - lip_drop * H * (1.0 - cos(th)), lip_throw * H * sin(th));
+}
 
 // Point on the rideable face. t: 0 = trough, 1 = lip line.
 vec3 face_point(float x, float t) {

@@ -12,7 +12,7 @@ const PROBE := preload("res://tests/wave_probe.gdshader")
 
 const N_X := 256
 const N_T := 9
-const QUANTITIES := ["x", "face_y", "face_z", "k", "height", "broken"]
+const QUANTITIES := ["x", "face_y", "face_z", "k", "height", "broken", "lip_y", "lip_z"]
 # Uniforms that are per-frame wave state rather than SHAPE entries.
 const STATE_UNIFORMS := ["H0", "curl_x", "closeout"]
 const PROBE_UNIFORMS := ["x_start", "x_step", "n_t"]
@@ -106,6 +106,8 @@ func _compare(label: String, img: Image, wave, origin: float, x_start: float, x_
 					"k": want = wave.k_at(x)
 					"height": want = wave.height_at(x)
 					"broken": want = wave.broken_amt(x)
+					"lip_y": want = wave.lip_pos(x, t).y
+					"lip_z": want = wave.lip_pos(x, t).z
 				var got := _decode(img.get_pixel(i, row))
 				var tol := maxf(ABS_TOL, REL_TOL * absf(want))
 				# Written so a NaN from the GPU counts as a failure.
