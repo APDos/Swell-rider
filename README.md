@@ -11,9 +11,11 @@ Side-view wave riding in Godot 4.3+. Everything (wave, surfer, HUD) is built in 
 | Keyboard | Gamepad | Action |
 |---|---|---|
 | ↑ / W | Left stick up, D-pad up | Carve up the face, toward the lip (for off-the-lips and airs) |
-| ↓ / S | Left stick down, D-pad down | Carve down the face, toward the trough |
+| ↓ / S | Left stick down, D-pad down | Carve down the face, toward the trough. Keep going and you ride out onto the flat water in front of the wave |
 | Space | Right trigger (analog), A | Pump: hold to drive down the face, release to turn off the bottom and carve back up. See below |
 | ← / A (hold) | Left stick left, D-pad left | Stall: weight on the tail, which digs in and brakes. The faster you're going, the harder it brakes |
+| ← + ↑ or ← + ↓ | Stick up-left / down-left | Cutback: swing the board around (up and over with ↑, low with ↓) until it points back at the barrel |
+| → + ↑ or → + ↓ | Stick up-right / down-right | When facing the barrel: swing back around down the line |
 | ← / → (or ↑ / ↓) in the air | Left stick, D-pad | Spin. Land within about 40° of a full rotation or you wipe out. Keys held through takeoff don't spin you until you let go of them |
 | Hold R (or Enter) | Hold Start | Restart mid-ride. After a wipeout, tap R, Enter or Space to paddle back out |
 | Esc | Back | Quit |
@@ -33,6 +35,8 @@ Side-view wave riding in Godot 4.3+. Everything (wave, surfer, HUD) is built in 
   - keep a steady rhythm, roughly one pump a second
   - don't mash the key: you can't pump more often than about every 0.6 s (presses sooner are ignored), and mashing between pumps wrecks the next one
 - **Stall** (hold ←) to sit deeper in the pocket or wait for the barrel. The tail digs in, and the drag grows with your speed squared: a stall at full speed brakes hard, a stall when you're slow barely does anything. Stall too long and you lose the wave.
+- **Riding out in front.** Nothing holds you on the face. Carve down past the trough and you ride onto the flat water in front of the wave: no wave push, and the flats bog you down. Get back up the face while you still have speed; ride too far out (most of a face length) and you've left the wave behind.
+- **Cutback** (← + ↑ or ← + ↓): when you've run out onto the shoulder, swing the board around to point back at the barrel, back toward the power. The swing costs some speed and is shallow on the face (the board is laid over on its rail). Turn back down the line with → + ↑/↓ for a **Cutback**. Or aim at the whitewater: hit it while facing back and the foam bounces you around and throws you out ahead of the curl, a **Roundhouse Cutback**. Hit the foam high near the lip, or sit in it too long, and it gets you.
 - Points come from speed, multiplied by how close you are to the pocket (up to x3).
 - **Off the Lip**: hit the top fast at a moderate angle. **Air**: hit the top fast and steep (heading > ~35°, speed > ~32 km/h). You'll need to pump up that speed first.
 - **Barrel**: stay mid-face just ahead of the curl where the lip is pitching. When the lip covers you, your surfer glows through the water, going from cyan to gold as you get deeper. A depth meter shows the same thing. Deeper barrels score more per second.

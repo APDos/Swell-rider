@@ -56,7 +56,7 @@ func _ready() -> void:
 	help.offset_left = 28
 	help.offset_top = -44
 	help.offset_bottom = -14
-	help.text = "↑/↓ carve up / down the face   Space: pump (hold to drive down, release to turn back up)   ← stall   In the air ←/→: spin   Hold R: restart   Esc: quit"
+	help.text = "↑/↓ carve   Space: pump (hold to drive, release to turn up)   ← stall   ←+↑/↓ cutback   →+↑/↓ turn back down the line   Air ←/→: spin   Hold R: restart   Esc: quit"
 	help.modulate.a = 0.8
 
 

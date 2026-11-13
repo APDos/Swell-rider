@@ -145,13 +145,18 @@ func face_point(x: float, t: float) -> Vector3:
 
 # ---- derived from the model above (CPU only, no shader twin) -----------------
 
-## Unit tangent pointing up the face at (x, t).
+## Unit tangent pointing up the face at (x, t). Out on the flat water in front
+## of the trough (t < 0) that's level, toward the wave.
 func face_up(x: float, t: float) -> Vector3:
+	if t < 0.0:
+		return Vector3(0.0, 0.0, -1.0)
 	var h := height_at(x)
 	return Vector3(0.0, h * P * pow(maxf(t, 0.02), P - 1.0), -lf_at(x)).normalized()
 
-## Face steepness angle (radians) at (x, t).
+## Face steepness angle (radians) at (x, t). Flat (0) in front of the trough.
 func slope_at(x: float, t: float) -> float:
+	if t < 0.0:
+		return 0.0
 	var h := height_at(x)
 	return atan(h * P * pow(maxf(t, 0.02), P - 1.0) / lf_at(x))
 

@@ -23,6 +23,10 @@ func _run() -> void:
 	await _long_hold_settles_lower()
 	await _no_input_holds_height()
 	await _pump_hold_uses_up_stroke()
+	await _hold_down_rides_out_front()
+	await _left_alone_is_a_stall()
+	await _cutback_points_at_barrel()
+	await _rebound_off_whitewater()
 	if _failures == 0:
 		print("PASS test_controls")
 		quit(0)
@@ -236,6 +240,116 @@ class NoSteer:
 		return 0.0
 	func pump(_surfer) -> float:
 		return 0.0
+
+
+## Player-driven ride with the curl curl_gap metres behind, at a steady speed mid-face.
+func _ride_setup(curl_gap: float) -> void:
+	await _fresh()
+	var s = main.surfer
+	s.t = 0.6
+	s.v = 14.0
+	s.phi = 0.0
+	s.turn_rate = 0.0
+	main.wave.curl_x = s.x - curl_gap
+	await physics_frame
+
+
+func _press(actions: Array, frames: int) -> void:
+	for a in actions:
+		Input.action_press(a)
+	for i in frames:
+		await physics_frame
+	for a in actions:
+		Input.action_release(a)
+
+
+## No guardrail at the trough: holding down carves you past it and out onto the
+## flat water in front of the wave, until you've left the wave behind.
+func _hold_down_rides_out_front() -> void:
+	await _ride_setup(60.0)
+	var s = main.surfer
+	var reason := [""]
+	var on_wipe := func(r): reason[0] = r
+	s.wiped_out.connect(on_wipe)
+	var t_min: float = s.t
+	Input.action_press("carve_down")
+	for i in 240:
+		await physics_frame
+		t_min = minf(t_min, s.t)
+		if reason[0] != "":
+			break
+	Input.action_release("carve_down")
+	s.wiped_out.disconnect(on_wipe)
+	if t_min > -0.2:
+		_fail("holding down should ride out in front of the trough (lowest t %.2f)" % t_min)
+	if reason[0] != "Rode off the front of the wave":
+		_fail("riding far out in front should end the ride by leaving the wave (got '%s')" % reason[0])
+
+
+## ← on its own still puts weight on the tail; it only turns you with ↑/↓.
+func _left_alone_is_a_stall() -> void:
+	await _ride_setup(60.0)
+	var s = main.surfer
+	await _press(["stall", "spin_left"], 20)
+	if s.facing < 0.0:
+		_fail("← on its own should stall, not turn you around")
+	if s.tail_dig < 0.5:
+		_fail("← on its own should dig the tail in (dig %.2f)" % s.tail_dig)
+
+
+## ← + ↑ swings the board up and around until it points back at the barrel
+## (moving toward the curl), → + ↑ brings it back down the line: a cutback.
+func _cutback_points_at_barrel() -> void:
+	await _ride_setup(60.0)
+	var s = main.surfer
+	var tricks := []
+	var on_trick := func(n, _p): tricks.append(n)
+	s.trick_landed.connect(on_trick)
+	var x0: float = s.x
+	await _press(["stall", "spin_left", "carve_up"], 70)
+	var facing_back: bool = s.facing < 0.0
+	var x1: float = s.x
+	for i in 15:
+		await physics_frame
+	var moving_back: bool = s.x < x1
+	if s.tail_dig > 0.3:
+		_fail("the cutback combo shouldn't also stall (dig %.2f)" % s.tail_dig)
+	await _press(["spin_right", "carve_up"], 70)
+	for i in 20:
+		await physics_frame
+	s.trick_landed.disconnect(on_trick)
+	if not facing_back or not moving_back:
+		_fail("← + ↑ should turn the board to point at the barrel and ride toward it (facing back %s, moving back %s)" % [facing_back, moving_back])
+	if s.facing < 0.0:
+		_fail("→ + ↑ should turn you back down the line")
+	if not "Cutback" in tricks:
+		_fail("turning back toward the curl and back down the line should score a Cutback (tricks %s)" % [tricks])
+	if s.state != s.RIDING:
+		_fail("an open-water cutback shouldn't end the ride")
+
+
+## Cut back low into the whitewater: the foam bounces you around and throws you
+## out ahead of the curl (a roundhouse cutback), rather than ending the ride.
+func _rebound_off_whitewater() -> void:
+	await _ride_setup(14.0)
+	var s = main.surfer
+	var tricks := []
+	var reason := [""]
+	var on_trick := func(n, _p): tricks.append(n)
+	var on_wipe := func(r): reason[0] = r
+	s.trick_landed.connect(on_trick)
+	s.wiped_out.connect(on_wipe)
+	await _press(["stall", "spin_left", "carve_down"], 60)
+	for i in 120:
+		await physics_frame
+	s.trick_landed.disconnect(on_trick)
+	s.wiped_out.disconnect(on_wipe)
+	if not "Roundhouse Cutback" in tricks:
+		_fail("cutting back into the whitewater should rebound into a Roundhouse Cutback (tricks %s, ended '%s')" % [tricks, reason[0]])
+	if reason[0] != "":
+		_fail("a rebound should throw you out ahead of the curl, not end the ride ('%s')" % reason[0])
+	elif main.surfer.x < main.wave.curl_x:
+		_fail("after a rebound you should be back out ahead of the curl")
 
 
 ## Wraps a rider: same steering, but holds the pump key for hold_s seconds.

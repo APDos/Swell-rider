@@ -178,7 +178,8 @@ func _schedule_closeout() -> void:
 	wave.closeout = Vector3(x0, x0 + randf_range(12.0, 24.0), 0.95)
 
 
-## Riding: up/down carves up/down the face (the pump has its own key).
+## Riding: up/down carves up/down the face (the pump has its own key); left or
+## right together with up/down turns you around (surfer.step's side input).
 ## In the air, left/right or up/down spins, but only once every key held through
 ## takeoff has been let go: holding up to hit the lip, or a stall into a launch,
 ## shouldn't also spin you into a bad landing.
@@ -227,23 +228,27 @@ func _physics_process(dt: float) -> void:
 	var steer: float
 	var stall := 0.0
 	var pump := 0.0
+	var side := 0.0
 	if barrel_test:
 		steer = _barrel_test_steer()
 	elif rider != null:
 		steer = rider.steer(surfer)
 		if rider.has_method("pump"):
 			pump = rider.pump(surfer)
+		if rider.has_method("side"):
+			side = rider.side(surfer)
 	else:
 		steer = _input_steer()
 		stall = Input.get_action_strength("stall")
 		pump = Input.get_action_strength("pump")
+		side = Input.get_axis("spin_left", "spin_right")
 
 	_prev_curl = wave.curl_x
 	if barrel_test and state == PLAYING:
 		wave.curl_x = surfer.x - 3.0
 	else:
 		_update_curl(dt)
-	surfer.step(dt, steer, stall, pump)
+	surfer.step(dt, steer, stall, pump, side)
 
 	if state == PLAYING:
 		ride_time += dt
@@ -296,7 +301,9 @@ func _cam_target() -> Array:
 	var p: Vector3 = surfer.global_position
 	var H: float = wave.height_at(surfer.vis_x)
 	var dist: float = 8.0 + 0.9 * H + 0.12 * surfer.v
-	var look: Vector3 = Vector3(p.x + 1.5, lerpf(H * 0.5, p.y, 0.35), lerpf(H * 0.4, p.z, 0.3))
+	# Out on the flats in front of the wave the camera backs off with you.
+	var out := clampf(-surfer.t, 0.0, 1.0) if surfer.state == surfer.RIDING else 0.0
+	var look: Vector3 = Vector3(p.x + 1.5 * surfer.facing, lerpf(H * 0.5, p.y, 0.35), lerpf(H * 0.4, p.z, 0.3 + 0.5 * out))
 	var eye: Vector3 = Vector3(p.x - 1.0, H * 0.55 + 1.2, look.z + dist)
 	return [eye, look]
 
