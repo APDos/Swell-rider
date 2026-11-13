@@ -25,10 +25,13 @@ Side-view wave riding in Godot 4.3+. Everything (wave, surfer, HUD) is built in 
 - **Closeout sections**: a steep section appears ahead ("Section ahead"). The curl races through it at 28 m/s, so you need to be past it before the curl gets there.
 
 ## Code map
-- `scripts/wave.gd` + `shaders/wave.gdshader`: the wave shape. The vertex shader builds the wave and lip from a flat grid. The GDScript copy of the same math keeps the surfer on the face. **If you change a formula in one, change it in the other.**
+- `scripts/wave.gd` + `shaders/wave_shape.gdshaderinc`: the wave shape. The vertex shader (`shaders/wave.gdshader`) builds the wave and lip from a flat grid using the functions in the include. `wave.gd` has a CPU copy of those functions to keep the surfer on the face. The tuning values live only in `wave.gd`'s `SHAPE` table and are pushed to the shader as uniforms. **If you change a formula in one copy, change it in the other and run the tests.** The parity test will catch a mismatch.
 - `scripts/surfer.gd`: face-space physics (x along the line, t up the face, speed, heading), plus airs and wipeouts. The tuning constants are at the top.
 - `scripts/main.gd`: curl and closeout scheduling, scoring, camera, environment.
 - `scripts/hud.gd`: on-screen UI.
+
+## Tests
+Run `tests/run_tests.sh` (needs `godot` 4.3+ on PATH, plus `xvfb-run` on a machine without a display). CI runs it on every push.
 
 ## Dev flags
 `godot --path . -- --autopilot` rides by itself. Add `--shot=/tmp/s.png` to save screenshots, or `--barreltest` to hold the curl just behind the surfer so you can tune the barrel.

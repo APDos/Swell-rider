@@ -1,13 +1,13 @@
 // Procedural breaking wave. The mesh is a flat grid where VERTEX.x = x along the
 // wave (local) and VERTEX.y = a 0..1 profile parameter. Everything else is computed
-// here. The same math lives in scripts/wave.gd so gameplay matches the visuals —
-// if you change a formula here, change it there too.
+// here. The rideable face comes from wave_shape.gdshaderinc, which is mirrored in
+// scripts/wave.gd and checked by tests/test_wave_parity.gd. The rest of this file
+// (back of the wave, lip curtain, whitewater, colour) only affects the visuals.
 shader_type spatial;
 render_mode cull_disabled;
 
-uniform float H0 = 3.0;           // wave height at the curl (m)
-uniform float curl_x = 0.0;       // breaking point, mesh-local x
-uniform vec3 closeout = vec3(10000.0, 10001.0, 0.0); // x0, x1 (local), strength
+#include "res://shaders/wave_shape.gdshaderinc"
+
 uniform float x_offset = 0.0;     // mesh world x, for stable foam noise
 uniform bool lip_mode = false;    // false = wave body, true = pitching lip sheet
 
@@ -15,43 +15,21 @@ uniform vec3 deep_color : source_color = vec3(0.02, 0.15, 0.28);
 uniform vec3 face_color : source_color = vec3(0.03, 0.38, 0.50);
 uniform vec3 lip_color : source_color = vec3(0.30, 0.78, 0.72);
 
-const float P = 1.4;
-
 varying float v_h;     // height ratio 0..1
 varying float v_foam;
 varying float v_k;
 varying vec3 v_world;
 
-float smooth01(float x) { x = clamp(x, 0.0, 1.0); return x * x * (3.0 - 2.0 * x); }
-float broken_amt(float d) { return smooth01(-d / 6.0); }
-
-float wave_h(float x) {
-	float d = x - curl_x;
-	float ahead = 0.35 + 0.65 * exp(-max(d, 0.0) / 90.0);
-	return H0 * mix(ahead, 0.4, broken_amt(d));
-}
-
-float wave_k(float x) {
-	float d = x - curl_x;
-	float k = exp(-max(d, 0.0) / 12.0);
-	float inside = smooth01((x - closeout.x) / 6.0) * (1.0 - smooth01((x - closeout.y) / 6.0));
-	k = max(k, inside * closeout.z);
-	return k * (1.0 - broken_amt(d));
-}
-
 vec3 body_pos(float x, float v) {
-	float d = x - curl_x;
-	float H = wave_h(x);
-	float k = wave_k(x);
-	float Lf = mix(1.5, 0.75, k) * H;
+	float H = height_at(x);
+	float Lf = lf_at(x);
 	float Lb = 3.0 * H;
 	vec3 p;
 	if (v < 0.2) {
 		float s = v / 0.2;
 		p = vec3(x, 0.0, Lf + (1.0 - s) * 40.0);
 	} else if (v < 0.6) {
-		float t = (v - 0.2) / 0.4;
-		p = vec3(x, H * pow(t, P), Lf * (1.0 - t));
+		p = face_point(x, (v - 0.2) / 0.4);
 	} else {
 		float s = (v - 0.6) / 0.4;
 		float s1 = min(s / 0.7, 1.0);
@@ -59,15 +37,15 @@ vec3 body_pos(float x, float v) {
 	}
 	// churning whitewater once broken
 	float wx = x + x_offset;
-	float b = broken_amt(d);
+	float b = broken_amt(x);
 	float bump = b * (0.35 * sin(wx * 1.3 + TIME * 3.0 + v * 20.0) + 0.25 * sin(wx * 2.7 - TIME * 4.0 + v * 37.0));
 	p.y += bump * 0.6 * smooth01(p.y / max(H, 0.01) * 3.0);
 	return p;
 }
 
 vec3 lip_pos(float x, float w) {
-	float H = wave_h(x);
-	float k = wave_k(x);
+	float H = height_at(x);
+	float k = k_at(x);
 	float th = w * 2.4 * k;
 	return vec3(x, H - 0.55 * H * (1.0 - cos(th)), 1.15 * H * sin(th));
 }
@@ -75,7 +53,6 @@ vec3 lip_pos(float x, float w) {
 void vertex() {
 	float x = VERTEX.x;
 	float v = VERTEX.y;
-	float d = x - curl_x;
 	vec3 p; vec3 px; vec3 pv;
 	if (lip_mode) {
 		p = lip_pos(x, v);
@@ -90,10 +67,10 @@ void vertex() {
 	vec3 n = cross(px - p, pv - p);
 	NORMAL = length(n) > 1e-6 ? normalize(n) : vec3(0.0, 1.0, 0.0);
 
-	float H = max(wave_h(x), 0.01);
-	v_k = wave_k(x);
+	float H = max(height_at(x), 0.01);
+	v_k = k_at(x);
 	v_h = clamp(p.y / H, 0.0, 1.0);
-	float b = broken_amt(d);
+	float b = broken_amt(x);
 	if (lip_mode) {
 		v_foam = smooth01((v - 0.75) / 0.25) * v_k + b;
 	} else {
