@@ -15,6 +15,9 @@ const BINDINGS := {
 	# Riding toward the curl (left) puts weight on the tail. Same keys as spin_left,
 	# which only applies in the air.
 	"stall":      [[KEY_LEFT, KEY_A], [JOY_BUTTON_DPAD_LEFT], [[JOY_AXIS_LEFT_X, -1.0]]],
+	# Press to lift the nose, keep holding to push down. The trigger is analog:
+	# how far it's pulled sets the push force.
+	"pump":       [[KEY_SPACE], [JOY_BUTTON_A], [[JOY_AXIS_TRIGGER_RIGHT, 1.0]]],
 	"restart":    [[KEY_R, KEY_ENTER, KEY_KP_ENTER], [JOY_BUTTON_START], []],
 	"quit":       [[KEY_ESCAPE], [JOY_BUTTON_BACK], []],
 }

@@ -10,22 +10,25 @@ Side-view wave riding in Godot 4.3+. Everything (wave, surfer, HUD) is built in 
 ## Controls
 | Keyboard | Gamepad | Action |
 |---|---|---|
-| ↑ / W | Left stick up, D-pad up | Rise up the face, toward the lip |
-| ↓ / S (hold) | Left stick down, D-pad down | Pump: drive the board down the face. See below |
+| ↑ / W | Left stick up, D-pad up | Carve up the face, toward the lip (for off-the-lips and airs) |
+| ↓ / S | Left stick down, D-pad down | Carve down the face, toward the trough |
+| Space | Right trigger (analog), A | Pump: press to lift the nose, keep holding to push the board down. See below |
 | ← / A (hold) | Left stick left, D-pad left | Stall: weight on the tail, which digs in and brakes. The faster you're going, the harder it brakes |
 | ← / → (or ↑ / ↓) in the air | Left stick, D-pad | Spin. Land within about 40° of a full rotation or you wipe out. Keys held through takeoff don't spin you until you let go of them |
 | Hold R (or Enter) | Hold Start | Restart mid-ride. After a wipeout, tap R, Enter or Space to paddle back out |
 | Esc | Back | Quit |
 
-Turns build up and ease off, and when you let go the surfer slowly straightens out. Holding ↓ settles into a driving angle down the face rather than nose-diving. Bindings are set up in `scripts/controls.gd`. Defining an action of the same name under Project Settings > Input Map overrides it.
+↑/↓ only choose your line. The pump is a separate move on top of that line. Turns build up and ease off, and when you let go the surfer slowly straightens out. Bindings are set up in `scripts/controls.gd`. Defining an action of the same name under Project Settings > Input Map overrides it.
 
 ## How it plays
 - The break peels down the line at about 9 m/s. If the curl catches you, you wipe out.
-- **Pumping is how you keep up.** The wave alone won't carry you: without pumping, the curl catches you within about 20 seconds. Rise up the face with ↑, then hold ↓ to drive back down. Each push gives speed while you're heading down the steep part of the face, until your legs are fully extended (about half a second of driving). Then let go and rise again. Holding on longer just carries you into the flats, where you bog down.
+- **Pumping is how you keep up.** The wave alone won't carry you: without pumping, the curl catches you within about 20 seconds. A pump works like a real one:
+  1. Press Space: the nose lifts up the face for a moment, taking weight off the board. Let go during the lift and it's only a nose flick.
+  2. Keep holding: you push the nose down and drive the board down the face, gaining speed.
+  3. The longer you hold (or the harder you pull the trigger), the more force, until your legs are fully extended after about half a second of driving. Holding on after that leaves you squashed down, which bogs the board. Let go to reset for the next pump.
 - **Pump quality** is shown after each push ("Pump", "Good pump", "Perfect pump"). A perfect pump gives 3x the speed of a sloppy one. To get one:
-  - start the push high on the face
-  - actually rise up the face since your last push (tapping in place doesn't work)
-  - keep a steady rhythm, roughly a pump every 1 to 2 seconds
+  - pump on the steep upper half of the face, not low in the flats or right at the lip
+  - keep a steady rhythm, roughly one pump a second
 - **Stall** (hold ←) to sit deeper in the pocket or wait for the barrel. The tail digs in, and the drag grows with your speed squared: a stall at full speed brakes hard, a stall when you're slow barely does anything. Stall too long and you lose the wave.
 - Points come from speed, multiplied by how close you are to the pocket (up to x3).
 - **Off the Lip**: hit the top fast at a moderate angle. **Air**: hit the top fast and steep (heading > ~35°, speed > ~32 km/h). You'll need to pump up that speed first.

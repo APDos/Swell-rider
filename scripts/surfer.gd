@@ -6,8 +6,9 @@ extends Node3D
 ## Speed comes from two places, as in real surfing:
 ## - The wave: gravity on the face, plus a push from the breaking water that is
 ##   strongest in the pocket. On its own this isn't quite enough to keep up.
-## - Pumping: rise up the face, then hold carve-down to drive the board down
-##   through the steep part. See _pump_* below for how a pump is scored.
+## - Pumping, on its own key: press to lift the nose up the face, keep holding
+##   to push the board back down and drive it. See _pump_accel below.
+## Steering (carve up/down) only chooses your line; it isn't part of the pump.
 ## The tail stall (stall action, toward the curl) digs the tail in: water drag
 ## that grows with speed squared, so it brakes hard when you're fast.
 ##
@@ -17,7 +18,7 @@ extends Node3D
 
 signal trick_landed(trick_name: String, points: int)
 signal wiped_out(reason: String)
-signal pumped(quality: float)   # a push started; quality is PUMP_MIN_QUALITY..1
+signal pumped(quality: float)   # a push (the drive after the lift) started; quality is PUMP_MIN_QUALITY..1
 
 enum { RIDING, AIR, WIPEOUT }
 
@@ -30,18 +31,20 @@ const TURN := 2.8        # rad/s at full steer
 const TURN_RESPONSE := 9.0  # 1/s: how quickly a turn builds up and eases off
 const RECENTER := 0.7    # 1/s: with no steer input, heading eases back toward straight
 const MAX_PHI := 1.35
-const PUMP_ANGLE := 0.65    # rad down the face where holding carve-down settles: a driving line, not a dive
-const STEEP_TURN := 0.3     # turn rate multiplier for going steeper than PUMP_ANGLE
 const DRIFT := 0.10      # water rising up the face carries you toward the lip (t/s)
 # pumping
-const PUSH_THRESHOLD := 0.3   # carve-down input beyond this is a push (keyboard ↓ is always 1)
-const PUMP_POWER := 40.0       # extra drive down the face from a perfect pump (m/s² at full slope/heading)
-const PUSH_STROKE := 0.45     # s of pushing before the legs are fully extended
-const RECOVER_TIME := 0.35    # s to get the full stroke back when not pushing
+const PUMP_PRESS := 0.2       # pump input beyond this counts as pressed (a gamepad trigger is analog)
+const LIFT_TIME := 0.18       # s the nose lifts before the push starts
+const LIFT_ANGLE := 0.28      # rad the nose comes up the face during the lift
+const DRIVE_ANGLE := 0.42     # rad the push drives the nose down the face
+const PITCH_RATE := 14.0      # 1/s: how quickly the board follows the lift and the push
+const PUMP_POWER := 25.0      # extra drive down the face from a perfect, full-strength push (m/s²)
+const PUSH_STROKE := 0.45     # s of full-strength driving before the legs are fully extended
+const RECOVER_TIME := 0.35    # s to get the full stroke back once the key is released
+const OVERHOLD_DRAG := 0.12   # 1/s: staying compressed after the stroke runs out bogs the board (decel = this * v)
 const PUMP_MIN_QUALITY := 1.0 / 3.0  # sloppiest pump; a perfect one is 1.0 (3x)
-const PUMP_HIGH_T := Vector2(0.35, 0.70)  # push start height: no credit below x, full credit above y
-const PUMP_FULL_RISE := 0.3   # rise up the face (in t) since the last push for full credit
-const PUMP_RHYTHM_RANGE := Vector2(0.6, 2.2)  # s between pumps that counts as a rhythm
+const PUMP_ZONE := Vector4(0.25, 0.55, 0.85, 0.97)  # push start height (t): credit ramps up x..y, full y..z (the steep upper face), gone by w
+const PUMP_RHYTHM_RANGE := Vector2(0.5, 2.0)  # s between pushes that counts as a rhythm
 # tail stall
 const STALL_DRAG := 0.055     # 1/m: tail drag coefficient (decel = STALL_DRAG * dig * v²)
 const STALL_DIG_TIME := 0.18  # s to shift weight back and sink the tail
@@ -65,11 +68,14 @@ var _air_time := 0.0
 
 var _clock := 0.0
 var _last_trick := -10.0
-var pushing := false
+enum { PUMP_IDLE, PUMP_LIFT, PUMP_PUSH }
+var pump_phase := PUMP_IDLE
+var pushing := false          # in the push (drive) part of a pump
 var stroke := 1.0             # leg travel left for this push (0..1)
 var pump_quality := 0.0       # quality of the current/last pump, PUMP_MIN_QUALITY..1
+var pump_pitch := 0.0         # rad the pump adds to the heading: + nose up the face, - nose down
+var _lift_time := 0.0
 var tail_dig := 0.0           # 0..1, how far the tail is sunk
-var _trough_t := 0.5          # lowest t since the last push ended
 var _last_push_start := -10.0
 var _last_interval := -1.0
 var _lean := 0.0
@@ -119,11 +125,13 @@ func reset(start_x: float) -> void:
 	phi = -0.1
 	spin = 0.0
 	turn_rate = 0.0
+	pump_phase = PUMP_IDLE
 	pushing = false
 	stroke = 1.0
 	pump_quality = 0.0
+	pump_pitch = 0.0
+	_lift_time = 0.0
 	tail_dig = 0.0
-	_trough_t = t
 	_last_push_start = -10.0
 	_last_interval = -1.0
 	in_barrel = false
@@ -146,53 +154,53 @@ func _save_prev() -> void:
 
 
 ## One fixed physics tick. steer is -1..1 (carve down/up on the face, spin in
-## the air). stall is 0..1 (weight on the tail).
-func step(dt: float, steer: float, stall := 0.0) -> void:
+## the air). stall is 0..1 (weight on the tail). pump is 0..1 (the pump key or
+## trigger; how hard it's held sets the push force).
+func step(dt: float, steer: float, stall := 0.0, pump := 0.0) -> void:
 	_save_prev()
 	_clock += dt
 	_steer = steer
 	match state:
-		RIDING: _step_riding(dt, steer, stall)
+		RIDING: _step_riding(dt, steer, stall, pump)
 		AIR: _step_air(dt, steer)
 		WIPEOUT: _step_wipeout(dt)
 
 
-func _step_riding(dt: float, steer: float, stall: float) -> void:
+func _step_riding(dt: float, steer: float, stall: float, pump: float) -> void:
 	var d: float = x - wave.curl_x
 	var slope: float = wave.slope_at(x, t)
 	var flen: float = wave.face_length(x)
 
 	# Turns build up and ease off rather than switching on and off instantly.
 	turn_rate = lerpf(turn_rate, steer * TURN, 1.0 - exp(-TURN_RESPONSE * dt))
-	# Holding down settles into a driving angle. You can still go steeper by
-	# holding on, but slowly, so a held key doesn't nose-dive you to the bottom.
-	var dphi := turn_rate * dt
-	if dphi < 0.0 and phi < -PUMP_ANGLE:
-		dphi *= STEEP_TURN
-	phi += dphi
+	phi += turn_rate * dt
 	if absf(steer) < 0.1:
 		phi = lerpf(phi, 0.0, 1.0 - exp(-RECENTER * dt))
 	phi = clampf(phi, -MAX_PHI, MAX_PHI)
 
+	# The pump adds its own small up-then-down motion on top of the steered line.
+	var pump_a := _pump_accel(dt, pump, slope)
+	var h := heading()
+
 	var pocket := 0.4 + 1.2 * exp(-maxf(d, 0.0) / 18.0)
-	var a := -G * sin(slope) * sin(phi) + WAVE_PUSH * sin(slope) * pocket - C1 * v - C2 * v * v
+	var a := -G * sin(slope) * sin(h) + WAVE_PUSH * sin(slope) * pocket - C1 * v - C2 * v * v
 	if t < 0.06:
 		a -= 3.0  # bogging in the flats
-	a += _pump_accel(dt, steer, slope)
+	a += pump_a
 
 	tail_dig = move_toward(tail_dig, clampf(stall, 0.0, 1.0), dt / STALL_DIG_TIME)
 	a -= STALL_DRAG * tail_dig * v * v
 	v = maxf(v + a * dt, 0.0)
 
-	t += (v * sin(phi) / flen + DRIFT) * dt
-	x += v * cos(phi) * dt
+	t += (v * sin(h) / flen + DRIFT) * dt
+	x += v * cos(h) * dt
 
 	if t >= 1.0:
-		if phi > 0.6 and v > 9.0:
+		if h > 0.6 and v > 9.0:
 			_launch()
 			return
 		t = 1.0
-		if v > 8.0 and phi > 0.35 and _clock - _last_trick > 0.8:
+		if v > 8.0 and h > 0.35 and _clock - _last_trick > 0.8:
 			_last_trick = _clock
 			trick_landed.emit("Off the Lip", 250)
 			v *= 0.92
@@ -217,45 +225,61 @@ func _step_riding(dt: float, steer: float, stall: float) -> void:
 		_wipeout("Lost the wave")
 
 
-## Pumping. Holding carve-down is a push: it drives the board down the face
-## harder than gravity alone, so you gain speed on the way down. The push only
-## adds speed while you are heading down the face, most on the steep middle
-## part, and only while the legs still have stroke left. Holding too long
-## just carries you down into the flats, where you bog.
+## The board's actual heading on the face: the steered line plus the pump's motion.
+func heading() -> float:
+	return clampf(phi + pump_pitch, -MAX_PHI, MAX_PHI)
+
+
+## Pumping, on its own key:
+## 1. Press: the nose lifts up the face for LIFT_TIME (taking weight off the board).
+##    Let go during the lift and it's just a nose flick, no push.
+## 2. Keep holding: the push drives the nose down and the board down the face,
+##    adding speed while heading down the steep part. How hard you hold (a
+##    trigger) and how long (up to the leg stroke) set the force.
+## 3. Holding on after the stroke runs out leaves you compressed, which bogs
+##    the board. Let go to recover the stroke for the next pump.
 ##
 ## How good a pump is gets decided when the push starts:
-## - height: start the push high on the face
-## - rise:   actually rise up the face since the last push (no tapping in place)
+## - height: push on the steep upper-middle of the face, not in the flats or at the lip
 ## - rhythm: keep a steady interval between pumps
 ## The sloppiest pump still gets PUMP_MIN_QUALITY, a perfect one gets 1.0.
-func _pump_accel(dt: float, steer: float, slope: float) -> float:
-	var push := steer < -PUSH_THRESHOLD
-	if push and not pushing:
-		pump_quality = _score_pump()
-		pumped.emit(pump_quality)
-	elif not push and pushing:
-		_trough_t = t
-	pushing = push
+func _pump_accel(dt: float, pump: float, slope: float) -> float:
+	var held := pump > PUMP_PRESS
+	if not held:
+		pump_phase = PUMP_IDLE
+	elif pump_phase == PUMP_IDLE:
+		pump_phase = PUMP_LIFT
+		_lift_time = 0.0
+	elif pump_phase == PUMP_LIFT:
+		_lift_time += dt
+		if _lift_time >= LIFT_TIME:
+			pump_phase = PUMP_PUSH
+			pump_quality = _score_pump()
+			pumped.emit(pump_quality)
+	pushing = pump_phase == PUMP_PUSH
+
+	var pitch_target := 0.0
+	match pump_phase:
+		PUMP_LIFT: pitch_target = LIFT_ANGLE
+		PUMP_PUSH: pitch_target = -DRIVE_ANGLE if stroke > 0.0 else 0.0
+	pump_pitch = lerpf(pump_pitch, pitch_target, 1.0 - exp(-PITCH_RATE * dt))
+
 	if not pushing:
-		_trough_t = minf(_trough_t, t)
 		stroke = minf(stroke + dt / RECOVER_TIME, 1.0)
 		return 0.0
 	if stroke <= 0.0:
-		return 0.0
+		return -OVERHOLD_DRAG * v
+	var force := clampf(pump, 0.0, 1.0)
 	var zone := smoothstep(0.08, 0.25, t) * (1.0 - smoothstep(0.85, 0.97, t))
-	# Full drive once you're heading down at a moderate angle. Diving steeper
-	# earns nothing extra and costs you progress down the line.
-	var down := smoothstep(0.0, sin(PUMP_ANGLE) * 0.8, -sin(phi))
+	var down := smoothstep(0.0, 0.3, -sin(heading()))
 	# The legs only spend their stroke while the push is driving you down the
-	# face, so pressing down at the top of the rise (the right moment) isn't
-	# wasted while the board is still turning over.
-	stroke = maxf(stroke - dt / PUSH_STROKE * down * zone, 0.0)
-	return PUMP_POWER * pump_quality * zone * sin(slope) * down
+	# face, so the start of the push isn't wasted while the nose comes over.
+	stroke = maxf(stroke - dt / PUSH_STROKE * force * down * zone, 0.0)
+	return PUMP_POWER * pump_quality * force * zone * sin(slope) * down
 
 
 func _score_pump() -> float:
-	var height := smoothstep(PUMP_HIGH_T.x, PUMP_HIGH_T.y, t)
-	var rise := clampf((t - _trough_t) / PUMP_FULL_RISE, 0.0, 1.0)
+	var height := smoothstep(PUMP_ZONE.x, PUMP_ZONE.y, t) * (1.0 - smoothstep(PUMP_ZONE.z, PUMP_ZONE.w, t))
 	var rhythm := 0.5  # first pump of a run: neutral
 	var interval := _clock - _last_push_start
 	if interval > PUMP_RHYTHM_RANGE.y:
@@ -267,16 +291,20 @@ func _score_pump() -> float:
 	else:
 		rhythm = 0.0  # pumping faster than a real rhythm
 	_last_push_start = _clock
-	var score := height * rise * (0.5 + 0.5 * rhythm)
+	var score := height * (0.5 + 0.5 * rhythm)
 	return lerpf(PUMP_MIN_QUALITY, 1.0, score)
 
 
 func _launch() -> void:
 	state = AIR
+	phi = heading()
+	pump_phase = PUMP_IDLE
+	pushing = false
+	pump_pitch = 0.0
 	in_barrel = false
 	barrel_depth = 0.0
 	air_h = 0.0
-	air_vy = 3.0 + v * sin(phi) * 0.35
+	air_vy = 3.0 + v * sin(heading()) * 0.35
 	spin = 0.0
 	_air_time = 0.0
 	t = 1.0
@@ -353,7 +381,8 @@ func update_visual(delta: float) -> void:
 
 	var fwd: Vector3
 	if state == RIDING:
-		fwd = (along * cos(phi) + up_face * sin(phi)).normalized()
+		var hd := heading()
+		fwd = (along * cos(hd) + up_face * sin(hd)).normalized()
 		global_position = p + n * 0.05
 	else:
 		fwd = Vector3(1, 0.25, 0).normalized()

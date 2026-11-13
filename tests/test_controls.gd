@@ -17,6 +17,10 @@ func _run() -> void:
 	await _held_up_air_lands_clean()
 	await _tap_restart_does_not_reset()
 	await _hold_restart_resets()
+	await _carve_down_is_not_a_pump()
+	await _pump_key_lifts_then_pushes()
+	await _pump_tap_is_only_a_flick()
+	await _pump_hold_uses_up_stroke()
 	if _failures == 0:
 		print("PASS test_controls")
 		quit(0)
@@ -29,7 +33,7 @@ func _fresh() -> void:
 	seed(99)
 	main.rider = null
 	main._reset()
-	for a in ["carve_up", "carve_down", "spin_left", "spin_right", "stall", "restart"]:
+	for a in ["carve_up", "carve_down", "spin_left", "spin_right", "stall", "pump", "restart"]:
 		Input.action_release(a)
 	await physics_frame
 
@@ -97,6 +101,90 @@ func _hold_restart_resets() -> void:
 	Input.action_release("restart")
 	if main.ride_time > 0.5:
 		_fail("holding restart for 0.66 s did not reset (ride_time %.2f)" % main.ride_time)
+
+
+## Pump-test setup: hold a steady line high on the face with the curl far
+## behind, so the pump key is the only thing changing speed.
+func _pump_setup() -> void:
+	await _fresh()
+	main.rider = main.Autopilot.new("none")   # steers a steady line; we press pump ourselves
+	main.wave.curl_x = -1000.0
+	main.surfer.t = 0.7
+	main.surfer.v = 10.0
+	await physics_frame
+
+
+func _carve_down_is_not_a_pump() -> void:
+	await _fresh()
+	Input.action_press("carve_down")
+	var pushed := false
+	for i in 40:
+		await physics_frame
+		pushed = pushed or main.surfer.pump_phase != main.surfer.PUMP_IDLE
+	Input.action_release("carve_down")
+	if pushed:
+		_fail("holding carve-down started a pump; steering and pumping should be separate")
+
+
+func _pump_key_lifts_then_pushes() -> void:
+	await _pump_setup()
+	var s = main.surfer
+	var lifted := false
+	var pushed := false
+	var max_pitch := 0.0
+	var min_pitch := 0.0
+	main.rider = PumpHold.new(main.Autopilot.new("none"))
+	for i in 30:
+		await physics_frame
+		lifted = lifted or s.pump_phase == s.PUMP_LIFT
+		pushed = pushed or s.pump_phase == s.PUMP_PUSH
+		max_pitch = maxf(max_pitch, s.pump_pitch)
+		min_pitch = minf(min_pitch, s.pump_pitch)
+	if not (lifted and pushed):
+		_fail("holding pump should lift then push (lifted %s, pushed %s)" % [lifted, pushed])
+	if max_pitch < 0.15 or min_pitch > -0.15:
+		_fail("pump should lift the nose up the face then drive it down (pitch %.2f..%.2f)" % [min_pitch, max_pitch])
+
+
+func _pump_tap_is_only_a_flick() -> void:
+	await _pump_setup()
+	var s = main.surfer
+	main.rider = PumpHold.new(main.Autopilot.new("none"), 0.08)   # released inside the lift
+	var pushed := false
+	for i in 30:
+		await physics_frame
+		pushed = pushed or s.pushing
+	if pushed:
+		_fail("a tap released during the lift should not push")
+
+
+func _pump_hold_uses_up_stroke() -> void:
+	await _pump_setup()
+	var s = main.surfer
+	main.rider = PumpHold.new(main.Autopilot.new("none"), 3.0)
+	var bogged := false
+	for i in 150:
+		await physics_frame
+		if s.pushing and s.stroke <= 0.0:
+			bogged = true
+			break
+	if not bogged:
+		_fail("holding the pump key should eventually use up the leg stroke")
+
+
+## Wraps a rider: same steering, but holds the pump key for hold_s seconds.
+class PumpHold:
+	var inner
+	var hold_s: float
+	var _t := 0.0
+	func _init(rider, hold := 10.0) -> void:
+		inner = rider
+		hold_s = hold
+	func steer(surfer) -> float:
+		return inner.steer(surfer)
+	func pump(_surfer) -> float:
+		_t += 1.0 / Engine.physics_ticks_per_second
+		return 1.0 if _t <= hold_s else 0.0
 
 
 func _fail(msg: String) -> void:

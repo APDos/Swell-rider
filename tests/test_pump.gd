@@ -31,9 +31,9 @@ func _initialize() -> void:
 func _run() -> void:
 	wave = main.wave       # set in main's _ready, which runs after _initialize
 	surfer = main.surfer
-	var cruise := await _rides(Autopilot.new(0.75, 0.30, false))
-	var sloppy := await _rides(Autopilot.new(0.45, 0.15))
-	var good := await _rides(Autopilot.new(0.75, 0.30))
+	var cruise := await _rides(Autopilot.new("none"))
+	var sloppy := await _rides(Autopilot.new("sloppy"))
+	var good := await _rides(Autopilot.new("good"))
 	for r in [["cruise (no pumping)", cruise], ["sloppy pumping", sloppy], ["good pumping", good]]:
 		_log("%-20s survived %d/%d  avg time %5.1fs  line speed %5.2f m/s  pumps/ride %3d  avg quality %.2f  %s" % [
 			r[0], r[1].survived, SEEDS.size(), r[1].time, r[1].avg_v, r[1].pumps, r[1].avg_q, r[1].reasons])
@@ -41,8 +41,8 @@ func _run() -> void:
 	_expect(sloppy.time > cruise.time + 5.0, "sloppy pumping should last clearly longer than not pumping (%.1f vs %.1f s)" % [sloppy.time, cruise.time])
 	_expect(good.survived == SEEDS.size(), "good pumping should make every wave (made %d/%d)" % [good.survived, SEEDS.size()])
 	_expect(good.avg_v > sloppy.avg_v + 0.7, "good pumping should be clearly faster than sloppy (%.2f vs %.2f m/s)" % [good.avg_v, sloppy.avg_v])
-	_expect(good.avg_q > 0.8, "the good rhythm should score near-perfect pumps (%.2f)" % good.avg_q)
-	_expect(sloppy.avg_q < 0.55, "the sloppy rhythm should score low pumps (%.2f)" % sloppy.avg_q)
+	_expect(good.avg_q > 0.85, "good pumping should score near-perfect pumps (%.2f)" % good.avg_q)
+	_expect(good.avg_q > sloppy.avg_q + 0.2, "good pumping should score clearly better pumps than sloppy (%.2f vs %.2f)" % [good.avg_q, sloppy.avg_q])
 
 	_check_single_pump_ratio()
 	_check_stall()
@@ -118,29 +118,29 @@ func _check_single_pump_ratio() -> void:
 	var perfect := _descent_gain(1.0) - base
 	var sloppy := _descent_gain(SurferScript.PUMP_MIN_QUALITY) - base
 	var ratio := perfect / maxf(sloppy, 1e-6)
-	_log("single pump: perfect +%.2f m/s, sloppy +%.2f m/s, ratio %.2f" % [perfect, sloppy, ratio])
-	# Power scales exactly 3x; the measured speed gain lands a little under because
-	# a slower board takes a slightly different line down the face.
-	_expect(ratio > 2.5 and ratio < 3.3, "a perfect pump should be worth about 3x a sloppy one (got %.2f)" % ratio)
-	_expect(perfect > 1.0, "a perfect pump should add a real amount of speed (+%.2f m/s)" % perfect)
+	_log("first 0.13 s of a push: perfect +%.2f m/s, sloppy +%.2f m/s, ratio %.2f" % [perfect, sloppy, ratio])
+	_expect(ratio > 2.8 and ratio < 3.2, "a perfect pump should be worth 3x a sloppy one (got %.2f)" % ratio)
+	_expect(perfect > 0.5, "a perfect pump should add speed fast (+%.2f m/s in the first 0.13 s)" % perfect)
 
 
-## Speed change over a 0.5 s push down the face from high up, with the pump's
-## quality pinned. Same steering every time, so only the pump power differs.
+## Speed change over the first 8 ticks of a push, with the pump's quality
+## pinned. Short enough that every run takes the same line down the face, so
+## only the pump power differs.
 func _descent_gain(quality: float) -> float:
 	_reset_ride()
 	wave.curl_x = -1000.0   # far behind: no pocket effects
-	surfer.t = 0.8
-	surfer.phi = -0.5
+	surfer.t = 0.75
+	surfer.phi = -0.1
 	surfer.v = 10.0
 	surfer.stroke = 1.0
-	var v0: float = surfer.v
-	surfer.pushing = true   # already mid-push, so the scoring doesn't run
+	surfer.pump_phase = surfer.PUMP_PUSH   # already past the lift, so scoring doesn't run
+	surfer.pushing = true
 	surfer.pump_quality = quality
-	for i in 30:
-		surfer.step(DT, -1.0, 0.0)
+	var v0: float = surfer.v
+	for i in 8:
+		surfer.step(DT, 0.0, 0.0, 1.0)
 		if _report and quality == 1.0 and i % 5 == 0:
-			_log("    tick %2d t=%.2f phi=%.2f v=%.2f slope=%.2f stroke=%.2f" % [i, surfer.t, surfer.phi, surfer.v, wave.slope_at(surfer.x, surfer.t), surfer.stroke])
+			_log("    tick %2d t=%.2f heading=%.2f v=%.2f stroke=%.2f" % [i, surfer.t, surfer.heading(), surfer.v, surfer.stroke])
 	return surfer.v - v0
 
 

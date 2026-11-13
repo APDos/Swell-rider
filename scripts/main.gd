@@ -178,7 +178,7 @@ func _schedule_closeout() -> void:
 	wave.closeout = Vector3(x0, x0 + randf_range(12.0, 24.0), 0.95)
 
 
-## Riding: up/down carves up/down the face (holding down is a pump push).
+## Riding: up/down carves up/down the face (the pump has its own key).
 ## In the air, left/right or up/down spins, but only once every key held through
 ## takeoff has been let go: holding up to hit the lip, or a stall into a launch,
 ## shouldn't also spin you into a bad landing.
@@ -226,20 +226,24 @@ func _physics_process(dt: float) -> void:
 
 	var steer: float
 	var stall := 0.0
+	var pump := 0.0
 	if barrel_test:
 		steer = _barrel_test_steer()
 	elif rider != null:
 		steer = rider.steer(surfer)
+		if rider.has_method("pump"):
+			pump = rider.pump(surfer)
 	else:
 		steer = _input_steer()
 		stall = Input.get_action_strength("stall")
+		pump = Input.get_action_strength("pump")
 
 	_prev_curl = wave.curl_x
 	if barrel_test and state == PLAYING:
 		wave.curl_x = surfer.x - 3.0
 	else:
 		_update_curl(dt)
-	surfer.step(dt, steer, stall)
+	surfer.step(dt, steer, stall, pump)
 
 	if state == PLAYING:
 		ride_time += dt

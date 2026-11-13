@@ -20,17 +20,19 @@ Rules:
 
 ## Pumping and stalling (surfer.gd)
 Design goals: easy to pick up, hard to master, and it should feel right to real surfers.
-- Pumping is the main source of speed. `WAVE_PUSH` alone can't keep up with the curl. A push is carve-down held past `PUSH_THRESHOLD`, and it drives you down the face (`PUMP_POWER`) while heading down the steep part, until the leg stroke (`PUSH_STROKE`) runs out.
-- Pump quality is set when the push starts (`_score_pump`): height on the face, rise since the last push, and rhythm. The range is `PUMP_MIN_QUALITY` (1/3) to 1.0, so a perfect pump is 3x a sloppy one.
+- Steering (carve up/down) only picks the line. The pump is its own input (the `pump` action, analog on a trigger). Never tie the pump to the carve keys: carving up is how you head for the lip and airs.
+- A pump is a lift then a push (`_pump_accel`). Press: the nose lifts for `LIFT_TIME`. Keep holding: the push drives down (`PUMP_POWER`), spending the leg stroke (`PUSH_STROKE`) while heading down the steep part. Holding past the stroke adds `OVERHOLD_DRAG`. The lift and push move the board through `pump_pitch`, which is added on top of the steered `phi`. Physics and drawing use `heading()`, which is the two combined.
+- Force comes from how long and how hard the key is held. Quality is technique, scored at push start (`_score_pump`): height on the face (`PUMP_ZONE`) and rhythm. The range is `PUMP_MIN_QUALITY` (1/3) to 1.0, so a perfect pump is 3x a sloppy one.
+- Pumping is the main source of speed: `WAVE_PUSH` alone can't keep up with the curl.
 - The stall is physical drag on the tail: decel = `STALL_DRAG * tail_dig * v²`. Never use a flat speed penalty.
-- `test_pump` locks in the balance: no pumping gets caught, sloppy pumping just keeps up, good pumping is clearly faster, the pump ratio is 3x, and the stall scales with v². If you retune, run `godot --headless --fixed-fps 60 --path . -s res://tests/test_pump.gd -- --report` to see the numbers.
+- `test_pump` locks in the balance: no pumping gets caught, sloppy pumping lasts longer, good pumping makes every wave and is clearly faster, pump power is 3x, and the stall scales with v². To see the numbers after retuning, run `godot --headless --fixed-fps 60 --path . -s res://tests/test_pump.gd -- --report`.
 
 ## Tests
 `tests/run_tests.sh` runs everything (under a minute). Run it before every push. GitHub Actions isn't enabled on this repo, so `.github/workflows/tests.yml` doesn't run. It needs `godot` on PATH (or `GODOT=...`), plus `xvfb-run` when there is no display.
 - `test_wave_parity`: GPU vs CPU wave shape, and uniform coverage.
 - `test_wave_model`: `face_up` and `slope_at` agree with `face_point`.
 - `test_smoke`: the main scene rides for 5 s of game time on autopilot. The runner fails on any script error.
-- `test_controls`: scripted input through the real actions (holding up through an air doesn't spin you; restart needs a hold mid-ride).
+- `test_controls`: scripted input through the real actions. Holding up through an air doesn't spin you, restart needs a hold mid-ride, carve-down never pumps, and the pump key lifts then pushes (a tap during the lift is only a flick).
 - `test_framerate`: the same 5 s ride ends in exactly the same state at 30, 60 and 144 fps.
 - `test_pump`: scripted riders on the real game loop check the pump and stall balance (see above).
 - The `mesh_get_surface_count` errors in headless runs come from Godot's dummy renderer and are harmless.
