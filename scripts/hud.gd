@@ -51,7 +51,7 @@ func _ready() -> void:
 	help.offset_left = 28
 	help.offset_top = -44
 	help.offset_bottom = -14
-	help.text = "↑/↓ or W/S: carve up / down the face   Space: pump   In the air ←/→: spin   R: restart   Esc: quit"
+	help.text = "↑/↓ or W/S: carve up / down the face   Space: pump   In the air ←/→: spin   Hold R: restart   Esc: quit"
 	help.modulate.a = 0.8
 
 

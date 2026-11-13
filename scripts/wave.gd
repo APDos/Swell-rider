@@ -61,7 +61,7 @@ func _ready() -> void:
 	add_child(lip)
 
 	# The shader has no defaults, so fill every uniform before the first frame.
-	follow(position.x)
+	follow(position.x, curl_x)
 
 
 func _grid(nx: int, nv: int) -> ArrayMesh:
@@ -91,22 +91,24 @@ func _grid(nx: int, nv: int) -> ArrayMesh:
 
 ## Keep the mesh centred on the action. Snapped to the grid spacing so the
 ## vertices don't swim.
-func follow(focus_x: float) -> void:
+## draw_curl_x is the curl position to draw this frame (blended between physics
+## ticks by main.gd), which can sit slightly behind the gameplay curl_x.
+func follow(focus_x: float, draw_curl_x: float) -> void:
 	var step := (X_BEHIND + X_AHEAD) / SEG_X
 	position.x = snappedf(focus_x, step)
 	for m in [_mat_body, _mat_lip]:
-		apply_to(m, position.x)
+		apply_to(m, position.x, draw_curl_x)
 		m.set_shader_parameter("x_offset", position.x)
 
 
 ## Push the shape values and the current wave state into a material that
 ## includes wave_shape.gdshaderinc. origin_x is the world x of the mesh origin,
-## because the shader works in mesh-local x.
-func apply_to(mat: ShaderMaterial, origin_x: float) -> void:
+## because the shader works in mesh-local x. at_curl_x is the curl position to use.
+func apply_to(mat: ShaderMaterial, origin_x: float, at_curl_x: float) -> void:
 	for key in SHAPE:
 		mat.set_shader_parameter(key, SHAPE[key])
 	mat.set_shader_parameter("H0", base_height)
-	mat.set_shader_parameter("curl_x", curl_x - origin_x)
+	mat.set_shader_parameter("curl_x", at_curl_x - origin_x)
 	mat.set_shader_parameter("closeout", Vector3(closeout.x - origin_x, closeout.y - origin_x, closeout.z))
 
 

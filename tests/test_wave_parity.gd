@@ -57,7 +57,7 @@ func _run() -> void:
 		# Sample from behind the curl (broken water) to well ahead of it.
 		var x_start: float = wave.curl_x - origin - 30.0
 		var x_step := 200.0 / N_X
-		wave.apply_to(mat, origin)
+		wave.apply_to(mat, origin, wave.curl_x)
 		mat.set_shader_parameter("x_start", x_start)
 		mat.set_shader_parameter("x_step", x_step)
 		mat.set_shader_parameter("n_t", N_T)

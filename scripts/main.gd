@@ -1,14 +1,20 @@
 extends Node3D
 ## Game loop: builds the world in code, runs the curl, scoring, camera and HUD.
+##
+## Gameplay (input, surfer physics, curl, scoring) runs in _physics_process at a
+## fixed 60 ticks per second, so it plays the same at any frame rate. Everything
+## drawn (surfer, wave, camera) is updated in _process, blended between ticks.
 
 const WaveScript := preload("res://scripts/wave.gd")
 const SurferScript := preload("res://scripts/surfer.gd")
 const HudScript := preload("res://scripts/hud.gd")
+const Controls := preload("res://scripts/controls.gd")
 
 enum { PLAYING, WIPEOUT }
 
 const PEEL_BASE := 9.0       # m/s the break peels down the line
 const PEEL_CLOSEOUT := 28.0  # m/s through a closeout section
+const RESTART_HOLD := 0.5    # s to hold restart mid-ride, so a stray press doesn't end the run
 
 var state := PLAYING
 var wave
@@ -31,10 +37,13 @@ var barrel_test := false  # dev: pins the curl just behind the surfer
 var _look := Vector3.ZERO
 var shot_path := ""
 var _shots_taken := 0
-var _space_prev := false
+var _prev_curl := 0.0       # curl x at the previous tick, for smooth drawing
+var _spin_latched := false   # carve input held through takeoff doesn't spin you
+var _restart_held := 0.0
 
 
 func _ready() -> void:
+	Controls.register()
 	randomize()
 	var args := OS.get_cmdline_user_args()
 	autopilot = "--autopilot" in args
@@ -148,6 +157,8 @@ func _reset() -> void:
 	wave.curl_x = 0.0
 	_schedule_closeout()
 	surfer.reset(13.0)
+	_prev_curl = wave.curl_x
+	_restart_held = 0.0
 	hud.hide_message()
 	hud.set_barrel(false, 0.0, 0.0)
 	_snap_camera()
@@ -158,19 +169,19 @@ func _schedule_closeout() -> void:
 	wave.closeout = Vector3(x0, x0 + randf_range(12.0, 24.0), 0.95)
 
 
-## Riding: up/down carves up/down the face. In the air any direction spins.
+## Riding: up/down carves up/down the face. In the air left/right spins, and
+## so does up/down, but only once it has been let go after takeoff: holding up
+## to hit the lip shouldn't also spin you into a bad landing.
 func _input_steer() -> float:
-	var s := Input.get_axis("ui_down", "ui_up")
-	if Input.is_physical_key_pressed(KEY_W):
-		s += 1.0
-	if Input.is_physical_key_pressed(KEY_S):
-		s -= 1.0
-	if surfer.state == surfer.AIR:
-		s += Input.get_axis("ui_right", "ui_left")
-		if Input.is_physical_key_pressed(KEY_A):
-			s += 1.0
-		if Input.is_physical_key_pressed(KEY_D):
-			s -= 1.0
+	var carve := Input.get_axis("carve_down", "carve_up")
+	if surfer.state != surfer.AIR:
+		_spin_latched = absf(carve) > 0.1
+		return carve
+	if _spin_latched and absf(carve) < 0.1:
+		_spin_latched = false
+	var s := Input.get_axis("spin_right", "spin_left")
+	if not _spin_latched:
+		s += carve
 	return clampf(s, -1.0, 1.0)
 
 
@@ -182,23 +193,26 @@ func _autopilot_steer() -> float:
 	return clampf((target_phi - surfer.phi) * 3.0, -1.0, 1.0)
 
 
-func _process(delta: float) -> void:
-	var dt := minf(delta, 1.0 / 30.0)
-
-	if Input.is_physical_key_pressed(KEY_ESCAPE):
+func _physics_process(dt: float) -> void:
+	if Input.is_action_pressed("quit"):
 		get_tree().quit()
 
 	if state == WIPEOUT:
-		if Input.is_action_just_pressed("ui_accept") or Input.is_physical_key_pressed(KEY_R):
+		if Input.is_action_just_pressed("restart") or Input.is_action_just_pressed("pump"):
 			_reset()
-	elif Input.is_physical_key_pressed(KEY_R) and ride_time > 0.5:
-		_reset()
+			return
+	elif Input.is_action_pressed("restart"):
+		_restart_held += dt
+		if _restart_held >= RESTART_HOLD:
+			_reset()
+			return
+	else:
+		_restart_held = 0.0
 
 	var steer := _autopilot_steer() if autopilot else _input_steer()
-	var space := Input.is_physical_key_pressed(KEY_SPACE) or Input.is_action_pressed("ui_select")
-	var pump := space and not _space_prev
-	_space_prev = space
+	var pump := Input.is_action_just_pressed("pump")
 
+	_prev_curl = wave.curl_x
 	if barrel_test and state == PLAYING:
 		wave.curl_x = surfer.x - 3.0
 	else:
@@ -226,11 +240,16 @@ func _process(delta: float) -> void:
 	else:
 		hud.set_warning(false)
 
-	wave.follow(surfer.x)
-	ocean.position = Vector3(snappedf(surfer.x, 7.5), -0.06, 0.0)
-	var H: float = wave.height_at(wave.curl_x)
-	curl_spray.global_position = Vector3(wave.curl_x - 0.5, 0.45 * H, 0.75 * H)
-	_update_camera(dt)
+
+func _process(delta: float) -> void:
+	var f := Engine.get_physics_interpolation_fraction()
+	var curl_draw := lerpf(_prev_curl, wave.curl_x, f)
+	surfer.update_visual(delta)
+	wave.follow(surfer.vis_x, curl_draw)
+	ocean.position = Vector3(snappedf(surfer.vis_x, 7.5), -0.06, 0.0)
+	var H: float = wave.height_at(curl_draw)
+	curl_spray.global_position = Vector3(curl_draw - 0.5, 0.45 * H, 0.75 * H)
+	_update_camera(delta)
 	_maybe_screenshot()
 
 
@@ -249,7 +268,7 @@ func _update_curl(dt: float) -> void:
 ## frame stays steady while you carve.
 func _cam_target() -> Array:
 	var p: Vector3 = surfer.global_position
-	var H: float = wave.height_at(surfer.x)
+	var H: float = wave.height_at(surfer.vis_x)
 	var dist: float = 8.0 + 0.9 * H + 0.12 * surfer.v
 	var look: Vector3 = Vector3(p.x + 1.5, lerpf(H * 0.5, p.y, 0.35), lerpf(H * 0.4, p.z, 0.3))
 	var eye: Vector3 = Vector3(p.x - 1.0, H * 0.55 + 1.2, look.z + dist)
@@ -257,6 +276,7 @@ func _cam_target() -> Array:
 
 
 func _snap_camera() -> void:
+	surfer.update_visual(0.0)
 	var tg := _cam_target()
 	cam.global_position = tg[0]
 	_look = tg[1]

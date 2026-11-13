@@ -26,6 +26,22 @@ run() {
 run import          "$GODOT" --headless --path . --import
 run wave_model      "$GODOT" --headless --path . -s res://tests/test_wave_model.gd
 run smoke           "$GODOT" --headless --fixed-fps 60 --path . -s res://tests/test_smoke.gd
+run controls        "$GODOT" --headless --fixed-fps 60 --path . -s res://tests/test_controls.gd
+# The same 5 s ride must end in exactly the same state at any frame rate.
+fr_ref=""
+for fps in 30 60 144; do
+	out="$("$GODOT" --headless --fixed-fps "$fps" --path . -s res://tests/test_framerate.gd 2>&1)"
+	st="$(grep -E "^STATE" <<<"$out")"
+	if [[ -z "$st" ]] || grep -qE "SCRIPT ERROR|Parse Error" <<<"$out"; then
+		echo "FAIL framerate ($fps fps run did not finish)"; sed 's/^/    /' <<<"$out"; failed=1; fr_ref="x"; break
+	fi
+	if [[ -z "$fr_ref" ]]; then fr_ref="$st"
+	elif [[ "$st" != "$fr_ref" ]]; then
+		echo "FAIL framerate: 30 fps and $fps fps end differently"; echo "    30:  $fr_ref"; echo "    $fps: $st"; failed=1; fr_ref="x"; break
+	fi
+done
+[[ "$fr_ref" != "x" ]] && echo "PASS test_framerate (identical at 30, 60, 144 fps)"
+
 run wave_parity     "${GPU_PREFIX[@]}" "$GODOT" --rendering-driver opengl3 --path . -s res://tests/test_wave_parity.gd
 
 exit $failed

@@ -8,14 +8,16 @@ Side-view wave riding in Godot 4.3+. Everything (wave, surfer, HUD) is built in 
 3. Press F5.
 
 ## Controls
-| Input | Action |
-|---|---|
-| ↑ / W | Carve up the face, toward the lip |
-| ↓ / S | Carve down, toward the trough |
-| Space | Pump (tap it mid-face for speed; it has a cooldown) |
-| ← / → (or ↑ / ↓) in the air | Spin. Land within about 40° of a full rotation or you wipe out |
-| R / Enter | Paddle back out |
-| Esc | Quit |
+| Keyboard | Gamepad | Action |
+|---|---|---|
+| ↑ / W | Left stick up, D-pad up | Carve up the face, toward the lip |
+| ↓ / S | Left stick down, D-pad down | Carve down, toward the trough |
+| Space | A | Pump (tap it mid-face for speed; it has a cooldown) |
+| ← / → (or ↑ / ↓) in the air | Left stick, D-pad | Spin. Land within about 40° of a full rotation or you wipe out. A carve key held through takeoff doesn't spin you until you let go of it |
+| Hold R (or Enter) | Hold Start | Restart mid-ride. After a wipeout, a tap of R, Enter or Space paddles back out |
+| Esc | Back | Quit |
+
+Turns build up and ease off, and when you let go of the stick the surfer slowly straightens out. Bindings are set up in `scripts/controls.gd`. Defining an action of the same name under Project Settings > Input Map overrides it.
 
 ## How it plays
 - The break peels down the line at about 9 m/s. If the curl catches you, you wipe out.
@@ -27,7 +29,8 @@ Side-view wave riding in Godot 4.3+. Everything (wave, surfer, HUD) is built in 
 ## Code map
 - `scripts/wave.gd` + `shaders/wave_shape.gdshaderinc`: the wave shape. The vertex shader (`shaders/wave.gdshader`) builds the wave and lip from a flat grid using the functions in the include. `wave.gd` has a CPU copy of those functions to keep the surfer on the face. The tuning values live only in `wave.gd`'s `SHAPE` table and are pushed to the shader as uniforms. **If you change a formula in one copy, change it in the other and run the tests.** The parity test will catch a mismatch.
 - `scripts/surfer.gd`: face-space physics (x along the line, t up the face, speed, heading), plus airs and wipeouts. The tuning constants are at the top.
-- `scripts/main.gd`: curl and closeout scheduling, scoring, camera, environment.
+- `scripts/main.gd`: curl and closeout scheduling, scoring, camera, environment. Gameplay runs in `_physics_process` at a fixed 60 ticks per second; drawing runs in `_process`, blended between ticks.
+- `scripts/controls.gd`: input actions and default keyboard and gamepad bindings.
 - `scripts/hud.gd`: on-screen UI.
 
 ## Tests

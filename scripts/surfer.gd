@@ -2,6 +2,10 @@ extends Node3D
 ## Surfer controller. Physics run in "face space": x along the line, t up the face
 ## (0 trough .. 1 lip), v speed, phi heading (0 = straight down the line,
 ## + = angled up the face, - = angled down).
+##
+## step() advances the simulation and is called at the fixed physics rate.
+## update_visual() is called every rendered frame and draws the surfer blended
+## between the last two physics ticks, so motion is smooth at any frame rate.
 
 signal trick_landed(trick_name: String, points: int)
 signal wiped_out(reason: String)
@@ -13,7 +17,9 @@ const G := 11.0          # gravity along the face
 const WAVE_PUSH := 5.6   # energy from the wave, strongest in the pocket
 const C1 := 0.12         # linear drag
 const C2 := 0.022        # quadratic drag
-const TURN := 2.8        # rad/s
+const TURN := 2.8        # rad/s at full steer
+const TURN_RESPONSE := 9.0  # 1/s: how quickly a turn builds up and eases off
+const RECENTER := 0.7    # 1/s: with no steer input, heading eases back toward straight
 const MAX_PHI := 1.35
 const DRIFT := 0.10      # water rising up the face carries you toward the lip (t/s)
 const PUMP_BOOST := 1.3
@@ -44,6 +50,24 @@ var _wipe_pos := Vector3.ZERO
 var _wipe_vel := Vector3.ZERO
 var _wipe_spin := Vector3.ZERO
 
+var turn_rate := 0.0      # rad/s, eases toward steer * TURN
+var _steer := 0.0
+var _wipe_rot := Vector3.ZERO
+
+# Previous physics tick, for blending in update_visual().
+var _p_x := 0.0
+var _p_t := 0.5
+var _p_air_h := 0.0
+var _p_spin := 0.0
+var _p_wipe_pos := Vector3.ZERO
+var _p_wipe_rot := Vector3.ZERO
+var _snap_visual := true  # skip smoothing on the next frame (after a reset)
+var _overlay_on := false
+
+## Surfer x as drawn this frame (blended between ticks). Use it for anything
+## visual, such as the camera, so it doesn't stutter.
+var vis_x := 0.0
+
 var _rig: Node3D
 var _spray: CPUParticles3D
 var _parts: Array[MeshInstance3D] = []
@@ -64,20 +88,35 @@ func reset(start_x: float) -> void:
 	v = 11.0
 	phi = -0.1
 	spin = 0.0
+	turn_rate = 0.0
 	in_barrel = false
 	barrel_depth = 0.0
+	_wipe_rot = Vector3.ZERO
 	_rig.rotation = Vector3.ZERO
 	_rig.position = Vector3.ZERO
+	_save_prev()
+	vis_x = x
+	_snap_visual = true
 
 
+func _save_prev() -> void:
+	_p_x = x
+	_p_t = t
+	_p_air_h = air_h
+	_p_spin = spin
+	_p_wipe_pos = _wipe_pos
+	_p_wipe_rot = _wipe_rot
+
+
+## One fixed physics tick. steer is -1..1 (carve down/up on the face, spin in the air).
 func step(dt: float, steer: float, pump: bool) -> void:
+	_save_prev()
 	_clock += dt
-	_lean = lerpf(_lean, steer, 1.0 - exp(-8.0 * dt))
+	_steer = steer
 	match state:
 		RIDING: _step_riding(dt, steer, pump)
 		AIR: _step_air(dt, steer)
 		WIPEOUT: _step_wipeout(dt)
-	_update_visual(steer)
 
 
 func _step_riding(dt: float, steer: float, pump: bool) -> void:
@@ -85,7 +124,12 @@ func _step_riding(dt: float, steer: float, pump: bool) -> void:
 	var slope: float = wave.slope_at(x, t)
 	var flen: float = wave.face_length(x)
 
-	phi = clampf(phi + steer * TURN * dt, -MAX_PHI, MAX_PHI)
+	# Turns build up and ease off rather than switching on and off instantly.
+	turn_rate = lerpf(turn_rate, steer * TURN, 1.0 - exp(-TURN_RESPONSE * dt))
+	phi += turn_rate * dt
+	if absf(steer) < 0.1:
+		phi = lerpf(phi, 0.0, 1.0 - exp(-RECENTER * dt))
+	phi = clampf(phi, -MAX_PHI, MAX_PHI)
 
 	var pocket := 0.4 + 1.2 * exp(-maxf(d, 0.0) / 18.0)
 	var a := -G * sin(slope) * sin(phi) + WAVE_PUSH * sin(slope) * pocket - C1 * v - C2 * v * v
@@ -110,6 +154,7 @@ func _step_riding(dt: float, steer: float, pump: bool) -> void:
 			trick_landed.emit("Off the Lip", 250)
 			v *= 0.92
 		phi = minf(-absf(phi) * 0.8, -0.25)
+		turn_rate = 0.0
 	if t <= 0.0:
 		t = 0.0
 		phi = maxf(phi, 0.0)
@@ -161,8 +206,10 @@ func _step_air(dt: float, steer: float) -> void:
 		state = RIDING
 		t = 0.96
 		phi = -0.55
+		turn_rate = 0.0
 		v *= 0.9
 		spin = 0.0
+		_p_spin = 0.0  # landing re-bases the spin; don't blend across it
 
 
 func _wipeout(reason: String) -> void:
@@ -172,6 +219,9 @@ func _wipeout(reason: String) -> void:
 	_wipe_pos = global_position
 	_wipe_vel = Vector3(v * 0.4, 3.0, 3.5)
 	_wipe_spin = Vector3(randf_range(-6, 6), randf_range(-4, 4), randf_range(-8, 8))
+	_wipe_rot = _rig.rotation
+	_p_wipe_pos = _wipe_pos
+	_p_wipe_rot = _wipe_rot
 	_spray.emitting = false
 	wiped_out.emit(reason)
 
@@ -181,18 +231,26 @@ func _step_wipeout(dt: float) -> void:
 	_wipe_vel *= 1.0 - 0.8 * dt
 	_wipe_pos += _wipe_vel * dt
 	_wipe_pos.y = maxf(_wipe_pos.y, -0.4)
-	_rig.rotation += _wipe_spin * dt
+	_wipe_rot += _wipe_spin * dt
 	_wipe_spin *= 1.0 - 1.5 * dt
 
 
-func _update_visual(steer: float) -> void:
+## Called every rendered frame. Draws the surfer blended between the previous
+## and current physics tick.
+func update_visual(delta: float) -> void:
+	var f := Engine.get_physics_interpolation_fraction()
+	_lean = lerpf(_lean, _steer, 1.0 - exp(-8.0 * delta))
+	vis_x = lerpf(_p_x, x, f)
+
 	if state == WIPEOUT:
-		global_position = _wipe_pos
+		global_position = _p_wipe_pos.lerp(_wipe_pos, f)
+		_rig.rotation = _p_wipe_rot.lerp(_wipe_rot, f)
+		_update_highlight(delta)
 		return
 
-	var tt := t if state == RIDING else 1.0
-	var p: Vector3 = wave.face_point(x, tt)
-	var up_face: Vector3 = wave.face_up(x, tt)
+	var tt := lerpf(_p_t, t, f) if state == RIDING else 1.0
+	var p: Vector3 = wave.face_point(vis_x, tt)
+	var up_face: Vector3 = wave.face_up(vis_x, tt)
 	var along := Vector3(1, 0, 0)
 	var n := along.cross(up_face).normalized()  # face normal (up + shoreward)
 
@@ -203,30 +261,42 @@ func _update_visual(steer: float) -> void:
 	else:
 		fwd = Vector3(1, 0.25, 0).normalized()
 		n = Vector3.UP
-		global_position = p + Vector3(0, air_h + 0.1, -0.2)
+		global_position = p + Vector3(0, lerpf(_p_air_h, air_h, f) + 0.1, -0.2)
 	var right := fwd.cross(n).normalized()
 	var up := (-fwd).cross(right).normalized()
 	var b := Basis(right, up, -fwd)
 	if state == AIR:
-		b = Basis(Vector3.UP, -spin) * b
-	global_transform.basis = b.orthonormalized()
+		# Exact in the air: the player judges the landing by what they see.
+		b = Basis(Vector3.UP, -lerpf(_p_spin, spin, f)) * b
+		global_transform.basis = b.orthonormalized()
+	else:
+		# On the face, ease toward the target so the heading flips at the lip
+		# and on landing turn quickly instead of snapping in one frame.
+		var target := b.orthonormalized().get_rotation_quaternion()
+		var q := target if _snap_visual else global_transform.basis.get_rotation_quaternion().slerp(target, 1.0 - exp(-18.0 * delta))
+		global_transform.basis = Basis(q)
+	_snap_visual = false
 
 	_rig.rotation = Vector3(0, 0, _lean * 0.45 if state == RIDING else 0.0)
-	_spray.emitting = state == RIDING and absf(steer) > 0.3 and v > 7.0
-	_update_highlight()
+	_spray.emitting = state == RIDING and absf(_steer) > 0.3 and v > 7.0
+	_update_highlight(delta)
 
 
 ## Barrel highlight: an x-ray silhouette drawn through the lip plus a halo,
 ## shifting cyan -> gold as you get deeper.
-func _update_highlight() -> void:
+func _update_highlight(delta: float) -> void:
 	var target := barrel_depth if in_barrel else 0.0
-	_glow = lerpf(_glow, target, 0.2)
+	_glow = lerpf(_glow, target, 1.0 - exp(-13.0 * delta))
 	var on := _glow > 0.02
+	if on != _overlay_on:
+		_overlay_on = on
+		for m in _parts:
+			m.material_overlay = _xray if on else null
+		_halo.visible = on
+	if not on:
+		return
 	var c := Color(0.35, 1.0, 0.9).lerp(Color(1.0, 0.78, 0.2), _glow)
 	_xray.albedo_color = Color(c.r, c.g, c.b, 0.35 + 0.5 * _glow)
-	for m in _parts:
-		m.material_overlay = _xray if on else null
-	_halo.visible = on
 	_halo_mat.albedo_color = Color(c.r, c.g, c.b, 0.5 + 0.5 * _glow)
 	var sc := 2.2 + 1.8 * _glow
 	_halo.scale = Vector3(sc, sc, sc)
