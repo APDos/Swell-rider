@@ -18,8 +18,10 @@ func _run() -> void:
 	await _tap_restart_does_not_reset()
 	await _hold_restart_resets()
 	await _carve_down_is_not_a_pump()
-	await _pump_key_lifts_then_pushes()
+	await _pump_key_drives_then_rises()
 	await _pump_tap_is_only_a_flick()
+	await _long_hold_settles_lower()
+	await _no_input_holds_height()
 	await _pump_hold_uses_up_stroke()
 	if _failures == 0:
 		print("PASS test_controls")
@@ -126,36 +128,44 @@ func _carve_down_is_not_a_pump() -> void:
 		_fail("holding carve-down started a pump; steering and pumping should be separate")
 
 
-func _pump_key_lifts_then_pushes() -> void:
+func _pump_key_drives_then_rises() -> void:
 	await _pump_setup()
 	var s = main.surfer
-	var lifted := false
-	var pushed := false
-	var max_pitch := 0.0
+	var pumps := [0]
+	var count := func(_q, _g): pumps[0] += 1
+	s.pumped.connect(count)
+	var drove := false
+	var rose := false
 	var min_pitch := 0.0
-	main.rider = PumpHold.new(main.Autopilot.new("none"))
-	for i in 30:
+	var max_pitch := 0.0
+	main.rider = PumpHold.new(main.Autopilot.new("none"), 0.3)
+	for i in 50:
 		await physics_frame
-		lifted = lifted or s.pump_phase == s.PUMP_LIFT
-		pushed = pushed or s.pump_phase == s.PUMP_PUSH
-		max_pitch = maxf(max_pitch, s.pump_pitch)
+		drove = drove or s.pump_phase == s.PUMP_DRIVE
+		rose = rose or s.pump_phase == s.PUMP_RISE
 		min_pitch = minf(min_pitch, s.pump_pitch)
-	if not (lifted and pushed):
-		_fail("holding pump should lift then push (lifted %s, pushed %s)" % [lifted, pushed])
-	if max_pitch < 0.15 or min_pitch > -0.15:
-		_fail("pump should lift the nose up the face then drive it down (pitch %.2f..%.2f)" % [min_pitch, max_pitch])
+		max_pitch = maxf(max_pitch, s.pump_pitch)
+	s.pumped.disconnect(count)
+	if not (drove and rose):
+		_fail("holding then releasing pump should drive then rise (drove %s, rose %s)" % [drove, rose])
+	if min_pitch > -0.15 or max_pitch < 0.1:
+		_fail("pump should drive the nose down the face, then carve it back up (pitch %.2f..%.2f)" % [min_pitch, max_pitch])
+	if pumps[0] != 1:
+		_fail("one hold and release should be one pump (got %d)" % pumps[0])
 
 
 func _pump_tap_is_only_a_flick() -> void:
 	await _pump_setup()
 	var s = main.surfer
-	main.rider = PumpHold.new(main.Autopilot.new("none"), 0.08)   # released inside the lift
-	var pushed := false
+	var pumps := [0]
+	var count := func(_q, _g): pumps[0] += 1
+	s.pumped.connect(count)
+	main.rider = PumpHold.new(main.Autopilot.new("none"), 0.06)   # shorter than MIN_DRIVE
 	for i in 30:
 		await physics_frame
-		pushed = pushed or s.pushing
-	if pushed:
-		_fail("a tap released during the lift should not push")
+	s.pumped.disconnect(count)
+	if pumps[0] != 0:
+		_fail("a tap shorter than MIN_DRIVE should not count as a pump")
 
 
 func _pump_hold_uses_up_stroke() -> void:
@@ -170,6 +180,62 @@ func _pump_hold_uses_up_stroke() -> void:
 			break
 	if not bogged:
 		_fail("holding the pump key should eventually use up the leg stroke")
+
+
+## Holding the key a long time: the drive uses one leg stroke of drop, then the
+## board flattens out on that lower line. You chose that line, so it stays put
+## while held and after release (no creeping or snapping back up), and it isn't
+## the flats either.
+func _long_hold_settles_lower() -> void:
+	await _pump_setup()
+	var s = main.surfer
+	s.phi = 0.0
+	s.turn_rate = 0.0
+	s.pump_pitch = 0.0
+	main.rider = PumpHold.new(NoSteer.new(), 2.0)
+	var t0: float = s.t
+	var t_min := t0
+	var t_settled := -1.0
+	for i in 120:
+		await physics_frame
+		t_min = minf(t_min, s.t)
+		if i == 60:
+			t_settled = s.t
+	var t_released: float = s.t
+	for i in 90:
+		await physics_frame
+	if t_min < t0 - 0.35:
+		_fail("a long hold should level off, not drive you to the bottom (%.2f -> %.2f)" % [t0, t_min])
+	if t_settled > t0 - 0.1:
+		_fail("a long hold should take you down to a lower line (%.2f -> %.2f)" % [t0, t_settled])
+	if absf(t_released - t_settled) > 0.03:
+		_fail("while held after the stroke the board should stay on its line (%.2f -> %.2f)" % [t_settled, t_released])
+	if s.t > t_released + 0.06:
+		_fail("releasing after a long hold should not carve you back up to the start (%.2f, released at %.2f, now %.2f)" % [t0, t_released, s.t])
+
+
+## With no input at all the board trims across at the height it's at: nothing
+## pushes it up toward the lip or down to the flats.
+func _no_input_holds_height() -> void:
+	await _pump_setup()
+	var s = main.surfer
+	s.phi = 0.0
+	s.turn_rate = 0.0
+	s.pump_pitch = 0.0
+	main.rider = NoSteer.new()
+	var t0: float = s.t
+	for i in 120:
+		await physics_frame
+	if absf(s.t - t0) > 0.02:
+		_fail("riding with no input should hold its height (%.2f -> %.2f)" % [t0, s.t])
+
+
+## A player who isn't touching the carve keys.
+class NoSteer:
+	func steer(_surfer) -> float:
+		return 0.0
+	func pump(_surfer) -> float:
+		return 0.0
 
 
 ## Wraps a rider: same steering, but holds the pump key for hold_s seconds.

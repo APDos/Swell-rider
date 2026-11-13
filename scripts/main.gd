@@ -79,7 +79,7 @@ func _ready() -> void:
 	add_child(surfer)
 	surfer.trick_landed.connect(_on_trick)
 	surfer.wiped_out.connect(_on_wipeout)
-	surfer.pumped.connect(func(q: float): hud.pump_feedback(q))
+	surfer.pumped.connect(func(q: float, gain: float): hud.pump_feedback(q, gain))
 
 	curl_spray = _make_curl_spray()
 	add_child(curl_spray)

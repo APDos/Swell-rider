@@ -8,6 +8,12 @@ GODOT="${GODOT:-godot}"
 # A test that hits a script error never reaches quit() and would hang, so every
 # run gets a time limit.
 TIMEOUT="${TEST_TIMEOUT:-180}"
+# macOS has no GNU timeout; use gtimeout (brew coreutils) or a perl fallback.
+if ! command -v timeout >/dev/null; then
+	if command -v gtimeout >/dev/null; then timeout() { gtimeout "$@"; }
+	else timeout() { perl -e '$t=shift; $p=fork; if(!$p){exec @ARGV} $SIG{ALRM}=sub{kill "TERM",$p; exit 124}; alarm $t; waitpid $p,0; exit($?>>8)' "$@"; }
+	fi
+fi
 
 if [[ -n "${DISPLAY:-}" ]]; then GPU_PREFIX=(); else GPU_PREFIX=(xvfb-run -a); fi
 
@@ -47,6 +53,6 @@ for fps in 30 60 144; do
 done
 [[ "$fr_ref" != "x" ]] && echo "PASS test_framerate (identical at 30, 60, 144 fps)"
 
-run wave_parity     "${GPU_PREFIX[@]}" "$GODOT" --rendering-driver opengl3 --path . -s res://tests/test_wave_parity.gd
+run wave_parity     ${GPU_PREFIX[@]+"${GPU_PREFIX[@]}"} "$GODOT" --rendering-driver opengl3 --path . -s res://tests/test_wave_parity.gd
 
 exit $failed

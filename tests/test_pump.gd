@@ -3,7 +3,7 @@ extends SceneTree
 ## (curl speed changes, closeout sections) with scripted riders plugged in:
 ## - riding without pumping gets caught by the wave
 ## - sloppy pumping keeps you going, good pumping is clearly faster
-## - a perfect pump is worth 3x a sloppy one
+## - a perfect pump is worth 3x a sloppy one, and a pump brings you back up to your line
 ## - the tail stall brakes harder the faster you go (drag ~ v²)
 ##
 ##   godot --headless --fixed-fps 60 --path . -s res://tests/test_pump.gd [-- --report]
@@ -87,17 +87,20 @@ func _ride(bot, sd: int) -> Dictionary:
 	var sum_v := 0.0
 	var pumps := 0
 	var sum_q := 0.0
-	var was_pushing := false
+	var pumps_ref := [0, 0.0]
+	var on_pump := func(q: float, _gain: float):
+		pumps_ref[0] += 1
+		pumps_ref[1] += q
+	surfer.pumped.connect(on_pump)
 	while ticks * DT < RIDE_TIME and reason[0] == "":
 		await physics_frame
 		ticks += 1
 		ticks_ref[0] = ticks
 		sum_v += surfer.v
-		if surfer.pushing and not was_pushing:
-			pumps += 1
-			sum_q += surfer.pump_quality
-		was_pushing = surfer.pushing
 	surfer.wiped_out.disconnect(on_wipe)
+	surfer.pumped.disconnect(on_pump)
+	pumps = pumps_ref[0]
+	sum_q = pumps_ref[1]
 	# Speed down the line is what keeps you ahead of the curl; zig-zagging up
 	# and down the face doesn't count.
 	return {"time": ticks * DT, "avg_v": (surfer.x - x0) / (ticks * DT), "pumps": pumps,
@@ -111,37 +114,37 @@ func _reset_ride() -> void:
 	wave.closeout = Vector3(1e6, 1e6 + 1.0, 0.0)
 
 
-## Same descent, once with a perfect pump and once with the sloppiest one.
-## The speed gained from the pump itself should differ by 3x.
+## One full pump (drive 0.25 s, release, carve back up), once perfect, once
+## the sloppiest, once scored zero (same board path, no kick). The speed the
+## pump itself adds should differ by 3x, and the rise should bring you back up
+## to the height the pump started from rather than leaving you lower.
 func _check_single_pump_ratio() -> void:
-	var base := _descent_gain(0.0)        # same push, but scored zero: no pump power
-	var perfect := _descent_gain(1.0) - base
-	var sloppy := _descent_gain(SurferScript.PUMP_MIN_QUALITY) - base
-	var ratio := perfect / maxf(sloppy, 1e-6)
-	_log("first 0.13 s of a push: perfect +%.2f m/s, sloppy +%.2f m/s, ratio %.2f" % [perfect, sloppy, ratio])
+	var base := _pump_cycle(0.0)
+	var perfect := _pump_cycle(1.0)
+	var sloppy := _pump_cycle(SurferScript.PUMP_MIN_QUALITY)
+	var gp: float = perfect.dv - base.dv
+	var gs: float = sloppy.dv - base.dv
+	var ratio := gp / maxf(gs, 1e-6)
+	_log("one pump cycle: perfect +%.2f m/s, sloppy +%.2f m/s, ratio %.2f; height %.2f -> lowest %.2f -> %.2f" % [gp, gs, ratio, perfect.t0, perfect.t_min, perfect.t_end])
 	_expect(ratio > 2.8 and ratio < 3.2, "a perfect pump should be worth 3x a sloppy one (got %.2f)" % ratio)
-	_expect(perfect > 0.5, "a perfect pump should add speed fast (+%.2f m/s in the first 0.13 s)" % perfect)
+	_expect(gp > 2.0, "a perfect pump should add clearly noticeable speed (+%.2f m/s)" % gp)
+	_expect(perfect.t_min < perfect.t0 - 0.05, "the drive should drop you down the face (%.2f -> %.2f)" % [perfect.t0, perfect.t_min])
+	_expect(perfect.t_end > perfect.t0 - 0.03, "after a pump the board should carve back up to its line (%.2f -> %.2f)" % [perfect.t0, perfect.t_end])
 
 
-## Speed change over the first 8 ticks of a push, with the pump's quality
-## pinned. Short enough that every run takes the same line down the face, so
-## only the pump power differs.
-func _descent_gain(quality: float) -> float:
+func _pump_cycle(quality: float) -> Dictionary:
 	_reset_ride()
 	wave.curl_x = -1000.0   # far behind: no pocket effects
-	surfer.t = 0.75
-	surfer.phi = -0.1
+	surfer.t = 0.7
+	surfer.phi = 0.0
 	surfer.v = 10.0
-	surfer.stroke = 1.0
-	surfer.pump_phase = surfer.PUMP_PUSH   # already past the lift, so scoring doesn't run
-	surfer.pushing = true
-	surfer.pump_quality = quality
-	var v0: float = surfer.v
-	for i in 8:
-		surfer.step(DT, 0.0, 0.0, 1.0)
-		if _report and quality == 1.0 and i % 5 == 0:
-			_log("    tick %2d t=%.2f heading=%.2f v=%.2f stroke=%.2f" % [i, surfer.t, surfer.heading(), surfer.v, surfer.stroke])
-	return surfer.v - v0
+	surfer.quality_override = quality
+	var t_min: float = surfer.t
+	for i in 75:   # 0.25 s drive, then 1 s to turn and rise
+		surfer.step(DT, 0.0, 0.0, 1.0 if i < 15 else 0.0)
+		t_min = minf(t_min, surfer.t)
+	surfer.quality_override = -1.0
+	return {"dv": surfer.v - 10.0, "t0": 0.7, "t_min": t_min, "t_end": surfer.t}
 
 
 func _check_stall() -> void:

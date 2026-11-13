@@ -56,7 +56,7 @@ func _ready() -> void:
 	help.offset_left = 28
 	help.offset_top = -44
 	help.offset_bottom = -14
-	help.text = "↑/↓ carve up / down the face   Space: pump (press to lift, hold to push)   ← stall   In the air ←/→: spin   Hold R: restart   Esc: quit"
+	help.text = "↑/↓ carve up / down the face   Space: pump (hold to drive down, release to turn back up)   ← stall   In the air ←/→: spin   Hold R: restart   Esc: quit"
 	help.modulate.a = 0.8
 
 
@@ -84,7 +84,7 @@ func _process(dt: float) -> void:
 
 
 ## Quick read on each pump so players can learn what a good one feels like.
-func pump_feedback(quality: float) -> void:
+func pump_feedback(quality: float, gain: float) -> void:
 	if quality >= 0.9:
 		pump_label.text = "Perfect pump"
 		pump_label.add_theme_color_override("font_color", Color(0.45, 1.0, 0.55))
@@ -94,6 +94,7 @@ func pump_feedback(quality: float) -> void:
 	else:
 		pump_label.text = "Pump"
 		pump_label.add_theme_color_override("font_color", Color(0.85, 0.9, 0.95))
+	pump_label.text += "  +%d km/h" % roundi(gain * 3.6)
 	_pump_t = 0.9
 	pump_label.modulate.a = 1.0
 
