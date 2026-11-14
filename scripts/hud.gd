@@ -7,6 +7,7 @@ var msg_label: Label
 var barrel_label: Label
 var depth_bar: ProgressBar
 var pump_label: Label
+var help: Label
 var _popup_t := 0.0
 var _pump_t := 0.0
 
@@ -49,13 +50,12 @@ func _ready() -> void:
 	add_child(depth_bar)
 	msg_label = _mk(38, true)
 
-	var help := _mk(16)
+	help = _mk(16)
 	help.anchor_top = 1.0
 	help.anchor_bottom = 1.0
 	help.offset_left = 28 + lx
 	help.offset_top = -44 - inset.size.y
 	help.offset_bottom = -14 - inset.size.y
-	help.text = "Right thumb: point the nose (sweep up and round to cut back; straight back to stall)   Left thumb: hold to pump, lift to turn up   Hold ↻: restart"
 	help.modulate.a = 0.8
 
 
@@ -119,6 +119,13 @@ func set_barrel(on: bool, secs: float, depth: float) -> void:
 		var sb := depth_bar.get_theme_stylebox("fill") as StyleBoxFlat
 		sb.bg_color = c
 
+
+
+func set_help(settings) -> void:
+	var steer := "Right thumb: point the nose (sweep up and round to cut back; straight back to stall)"
+	if settings.face_steering():
+		steer = "Right thumb: up and down picks your height on the wave (sweep round to cut back; straight back to stall)"
+	help.text = steer + "   Left thumb: hold to pump, lift to turn up   ⚙ settings   Hold ↻: restart"
 
 
 func show_message(text: String) -> void:

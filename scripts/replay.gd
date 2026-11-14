@@ -17,6 +17,8 @@ var ride_seed := 0
 var aims: Array[Vector2] = []
 var pumps: Array[float] = []
 var fines: Array[bool] = []
+var face_ts: Array[float] = []
+var settings_text := ""   # the recording's `# settings` (main applies them)
 var expect: Array = []        # per tick: [x, t, v] as recorded
 var events: Array[String] = []
 var error := ""
@@ -45,6 +47,8 @@ func _parse(file_path: String) -> void:
 		if line.begins_with("#"):
 			if line.begins_with("# seed "):
 				ride_seed = int(line.substr(7))
+			elif line.begins_with("# settings "):
+				settings_text = line.substr(11)
 			elif line.begins_with("# event "):
 				events.append(line.substr(8))
 			continue
@@ -58,6 +62,7 @@ func _parse(file_path: String) -> void:
 		aims.append(Vector2(float(cells[cols.aim_x]), float(cells[cols.aim_y])))
 		pumps.append(float(cells[cols.pump]))
 		fines.append(cols.has("fine") and cells[cols.fine] == "1")   # older recordings: never
+		face_ts.append(float(cells[cols.face_t]) if cols.has("face_t") else -1.0)
 		expect.append([float(cells[cols.x]), float(cells[cols.t]), float(cells[cols.v])])
 	if aims.is_empty():
 		error = "no rows in %s" % file_path
@@ -87,6 +92,10 @@ func pump(_surfer) -> float:
 
 func fine(_surfer) -> bool:
 	return fines[tick - 1] if tick >= 1 and tick <= fines.size() and not done else false
+
+
+func face_t(_surfer) -> float:
+	return face_ts[tick - 1] if tick >= 1 and tick <= face_ts.size() and not done else -1.0
 
 
 ## At the end: check the last recorded row, unless aim() already did.

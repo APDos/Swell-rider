@@ -46,6 +46,8 @@ func _run() -> void:
 	await _rebound_off_whitewater()
 	await _straight_into_whitewater_wipes_out()
 	await _lip_hit_scores()
+	await _over_the_lip_is_an_air_or_over_the_back()
+	await _face_steering_picks_your_height()
 	if _failures == 0:
 		print("PASS test_controls")
 		quit(0)
@@ -835,3 +837,70 @@ class PumpHold:
 func _fail(msg: String) -> void:
 	_failures += 1
 	printerr("  " + msg)
+
+
+## Up through the lip nose up: with the speed, an air; without it, over the
+## back and the wave's gone. No bouncing off the top.
+func _over_the_lip_is_an_air_or_over_the_back() -> void:
+	for fast in [false, true]:
+		await _ride_setup(40.0)
+		var s = main.surfer
+		var why := [""]
+		var on_wipe := func(r): why[0] = r
+		s.wiped_out.connect(on_wipe)
+		s.t = 0.9
+		s.phi = 0.9
+		s.v = 13.0 if fast else 6.0
+		_thumb_down()
+		var reached := await _point_until(UP_RIGHT, func(): return s.state != s.RIDING, 60)
+		_thumb_up()
+		s.wiped_out.disconnect(on_wipe)
+		if fast and s.state != s.AIR:
+			_fail("up through the lip at 13 m/s should be an air (state %d, %s)" % [s.state, why[0]])
+		elif not fast and not "over the back" in why[0]:
+			_fail("up through the lip at 6 m/s should go over the back and lose the wave (reached %s, state %d, '%s')" % [reached, s.state, why[0]])
+
+
+## Face steering (settings FACE): the thumb's height picks your height on the
+## wave. Touching down is neutral; sliding up a fifth of the screen takes you
+## up the face and levels off there; lifting holds it. SLIDER: the screen is a
+## fixed slider, so touching near the top heads for the top of the wave.
+func _face_steering_picks_your_height() -> void:
+	var settings = main.settings
+	settings.parse("steering=face")
+	await _ride_setup(60.0)
+	var s = main.surfer
+	var view: Vector2 = main.get_viewport().get_visible_rect().size
+	var down := Vector2(view.x * 0.8, view.y * 0.55)
+	_touch(0, down, true)
+	for i in 12:
+		await physics_frame
+	var t0: float = s.t
+	if absf(s.face_goal - t0) > 0.02:
+		_fail("face steering: touching down should keep you where you are (goal %.2f, at %.2f)" % [s.face_goal, t0])
+	for i in 30:   # slide up a fifth of the screen in half a second
+		_drag(0, down + Vector2(0, -view.y * 0.2 * (i + 1) / 30.0))
+		await physics_frame
+	for i in 90:
+		await physics_frame
+	if s.t - t0 < 0.12:
+		_fail("face steering: sliding the thumb up should take you up the face (moved %.2f)" % (s.t - t0))
+	if absf(s.t - s.face_goal) > 0.05 or absf(rad_to_deg(s.phi)) > 8.0:
+		_fail("face steering: it should level off at the height asked for (at %.2f, goal %.2f, board %.0f°)" % [s.t, s.face_goal, rad_to_deg(s.phi)])
+	_touch(0, down, false)
+	var t1: float = s.t
+	for i in 60:
+		await physics_frame
+	if absf(s.t - t1) > 0.04:
+		_fail("face steering: lifting the thumb should hold your height (moved %.2f)" % (s.t - t1))
+	settings.parse("steering=slider")
+	await _ride_setup(60.0)
+	_touch(0, Vector2(view.x * 0.8, view.y * 0.2), true)
+	for i in 12:
+		await physics_frame
+	if main.surfer.face_goal < 0.75:
+		_fail("slider: touching near the top of the screen should head for the top of the wave (goal %.2f)" % main.surfer.face_goal)
+	_touch(0, Vector2(view.x * 0.8, view.y * 0.2), false)
+	settings.parse("steering=stick")
+	await _fresh()
+

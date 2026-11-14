@@ -29,44 +29,8 @@ func _run() -> void:
 	var view: Vector2 = main.get_viewport().get_visible_rect().size
 	_stick_at = Vector2(view.x * 0.8, view.y * 0.6)
 	_pump_at = Vector2(view.x * 0.2, view.y * 0.6)
-	seed(4321)
-	main._reset()
-	var path: String = main.recorder.path
-	if path == "":
-		_fail("the recorder didn't start a file for a player's ride")
-		_end()
-		return
-	await _play()
-	main.recorder.finish()
-
-	var r = Replay.load_file(path)
-	if r.error != "":
-		_fail("couldn't read the recording back: " + r.error)
-		_end()
-		return
-	var text := FileAccess.get_file_as_string(path)
-	if r.aims.size() < 120:
-		_fail("expected at least 120 rows, got %d" % r.aims.size())
-	if not r.aims.any(func(a): return a.length() > 0.5):
-		_fail("no steering in the recording")
-	if not r.pumps.any(func(p): return p > 0.0):
-		_fail("no pumping in the recording")
-	if not r.events.any(func(e): return " pump " in e):
-		_fail("no pump events in the recording")
-	if text.find(",-1,-1,-1,-1,") < 0 or text.find("stick_x") < 0:
-		_fail("the thumb columns look wrong")
-
-	# Play it back on a new ride: same wave, same input, same result.
-	main.recorder.enabled = false
-	main.rider = r
-	main._reset()
-	while not r.done and r.diverged_at < 0 and main.state == main.PLAYING:
-		await physics_frame
-	r.finish_check(main.surfer)
-	if r.diverged_at >= 0:
-		_fail("the replay parted from the recording at " + r.diverged_detail)
-	elif r.tick < r.aims.size():
-		_fail("the replay ended early (tick %d of %d, state %d)" % [r.tick, r.aims.size(), main.state])
+	for mode in ["stick", "face"]:
+		await _record_and_replay(mode)
 	_clear()
 	_end()
 
@@ -127,3 +91,53 @@ func _end() -> void:
 		quit(0)
 	else:
 		quit(1)
+
+
+## Record a ride played with real touches under these steering settings, check
+## the file, then replay it (with the other settings chosen, so the replay must
+## use the recording's own) and check it comes out the same.
+func _record_and_replay(mode: String) -> void:
+	main.rider = null
+	main.recorder.enabled = true
+	main.settings.parse("steering=" + mode)
+	seed(4321)
+	main._reset()
+	var path: String = main.recorder.path
+	if path == "":
+		_fail("the recorder didn't start a file for a player's ride (%s)" % mode)
+		return
+	await _play()
+	main.recorder.finish()
+
+	var r = Replay.load_file(path)
+	if r.error != "":
+		_fail("couldn't read the recording back: " + r.error)
+		return
+	var text := FileAccess.get_file_as_string(path)
+	if r.aims.size() < 120:
+		_fail("expected at least 120 rows, got %d (%s)" % [r.aims.size(), mode])
+	if not r.aims.any(func(a): return a.length() > 0.5):
+		_fail("no steering in the recording (%s)" % mode)
+	if not r.pumps.any(func(p): return p > 0.0):
+		_fail("no pumping in the recording (%s)" % mode)
+	if not r.events.any(func(e): return " pump " in e):
+		_fail("no pump events in the recording (%s)" % mode)
+	if text.find(",-1,-1,-1,-1,") < 0 or text.find("stick_x") < 0:
+		_fail("the thumb columns look wrong (%s)" % mode)
+	if text.find("# settings steering=" + mode) < 0:
+		_fail("the recording should say which settings it was played with (%s)" % mode)
+	if mode == "face" and not r.face_ts.any(func(f): return f >= 0.0):
+		_fail("a face-steering recording should have the thumb's height target")
+
+	# Play it back on a new ride: same wave, same input, same settings, same result.
+	main.recorder.enabled = false
+	main.settings.parse("steering=" + ("face" if mode == "stick" else "stick"))
+	main.rider = r
+	main._reset()
+	while not r.done and r.diverged_at < 0 and main.state == main.PLAYING:
+		await physics_frame
+	r.finish_check(main.surfer)
+	if r.diverged_at >= 0:
+		_fail("the %s replay parted from the recording at %s" % [mode, r.diverged_detail])
+	elif r.tick < r.aims.size():
+		_fail("the %s replay ended early (tick %d of %d, state %d)" % [mode, r.tick, r.aims.size(), main.state])

@@ -12,6 +12,8 @@ const TouchScript := preload("res://scripts/touch.gd")
 const Autopilot := preload("res://scripts/autopilot.gd")
 const RecorderScript := preload("res://scripts/recorder.gd")
 const Replay := preload("res://scripts/replay.gd")
+const SettingsScript := preload("res://scripts/settings.gd")
+const SettingsMenu := preload("res://scripts/settings_menu.gd")
 
 enum { PLAYING, WIPEOUT }
 
@@ -50,6 +52,9 @@ var _restart_held := 0.0
 var recorder   # recorder.gd: writes each ride to a file (phone debug builds, or --record)
 var _rng := RandomNumberGenerator.new()   # the ride's wave (height), seeded per ride so a replay gets the same one
 var _replay_check := false  # --replay headless: print how the replay compares, then quit
+var settings = SettingsScript.new()   # control options (the ⚙ menu); a replay uses its recording's
+var settings_menu
+var _marker: MeshInstance3D   # face steering: the height you're steering to, on the wave
 
 
 func _ready() -> void:
@@ -67,6 +72,9 @@ func _ready() -> void:
 			if rider.error != "":
 				push_error("replay: " + rider.error)
 			_replay_check = DisplayServer.get_name() == "headless"
+
+	if DisplayServer.get_name() != "headless":
+		settings.load_saved()   # a replay's own settings replace these in _reset
 
 	_build_environment()
 
@@ -105,7 +113,25 @@ func _ready() -> void:
 	add_child(hud)
 	touch = TouchScript.new()
 	touch.main = self
+	touch.settings = settings
 	add_child(touch)
+	settings_menu = SettingsMenu.new()
+	settings_menu.main = self
+	settings_menu.settings = settings
+	add_child(settings_menu)
+	_marker = MeshInstance3D.new()
+	var bar := BoxMesh.new()
+	bar.size = Vector3(2.4, 0.07, 0.07)
+	_marker.mesh = bar
+	var mm := StandardMaterial3D.new()
+	mm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mm.albedo_color = Color(1.0, 0.95, 0.4, 0.75)
+	mm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mm.no_depth_test = true
+	_marker.material_override = mm
+	_marker.visible = false
+	add_child(_marker)
+	hud.set_help(settings)
 	recorder = RecorderScript.new()
 	recorder.main = self
 	recorder.enabled = OS.is_debug_build() and (OS.has_feature("mobile") or "--record" in args)
@@ -183,6 +209,10 @@ func _reset() -> void:
 	if rider != null and "ride_seed" in rider:
 		ride_seed = rider.ride_seed
 	_rng.seed = ride_seed
+	if rider != null and "settings_text" in rider and rider.settings_text != "":
+		settings.parse(rider.settings_text)   # ride the recording with its settings
+		if hud != null:
+			hud.set_help(settings)
 	wave.base_height = _rng.randf_range(4.2, 5.4)
 	wave.curl_x = 0.0
 	surfer.reset(13.0)
@@ -197,6 +227,21 @@ func _reset() -> void:
 	recorder.finish()
 	if rider == null and not barrel_test:
 		recorder.begin(ride_seed)
+
+
+## The ⚙ button: pause and show the settings.
+func open_settings() -> void:
+	if settings_menu.is_open():
+		return
+	touch.release_all()
+	settings_menu.open()
+
+
+## The menu closed with something changed: start a new ride with it (so each
+## recording is one set of settings).
+func settings_changed() -> void:
+	hud.set_help(settings)
+	_reset()
 
 
 func use_autopilot() -> void:
@@ -231,6 +276,7 @@ func _physics_process(dt: float) -> void:
 	var aim := Vector2.ZERO
 	var pump := 0.0
 	var fine := false   # positioning (a slow thumb): see surfer.HOLD_ANG
+	var face_t := -1.0  # face steering: the height the thumb asks for
 	if barrel_test:
 		aim = _barrel_test_aim()
 	elif rider != null:
@@ -239,11 +285,17 @@ func _physics_process(dt: float) -> void:
 			pump = rider.pump(surfer)
 		if rider.has_method("fine"):
 			fine = rider.fine(surfer)
+		if rider.has_method("face_t"):
+			face_t = rider.face_t(surfer)
 	else:
 		aim = touch.aim
 		pump = touch.pump
 		fine = touch.fine
+		face_t = touch.face_t
 	surfer.fine = fine
+	surfer.face_t = face_t
+	surfer.face_mode = settings.face_steering() and not barrel_test
+	surfer.hold_enabled = settings.height_hold
 
 	_prev_curl = wave.curl_x
 	if barrel_test and state == PLAYING:
@@ -288,7 +340,17 @@ func _process(delta: float) -> void:
 	var H: float = wave.height_at(curl_draw)
 	curl_spray.global_position = Vector3(curl_draw - 0.5, 0.45 * H, 0.75 * H)
 	_update_camera(delta)
+	_update_marker()
 	_maybe_screenshot()
+
+
+## Face steering: a bar on the wave a little ahead of you at the height you're steering to.
+func _update_marker() -> void:
+	var on: bool = settings.marker and surfer.face_goal >= 0.0 and surfer.state == surfer.RIDING and state == PLAYING
+	_marker.visible = on
+	if on:
+		var mx: float = surfer.vis_x + surfer.facing * 3.0
+		_marker.global_position = wave.face_point(mx, clampf(surfer.face_goal, 0.0, 1.0)) + Vector3(0.0, 0.05, 0.3)   # just off the face, toward the camera
 
 
 func _update_curl(dt: float) -> void:

@@ -66,6 +66,13 @@ const HOLD_GAIN := 1.2        # rad of board angle per face height off the held 
 const HOLD_FIX := deg_to_rad(12.0)   # ...at most
 const HOLD_LOW := 0.1         # t: the held height stays on the face
 const HOLD_HIGH := 0.85
+# Face steering (settings FACE / SLIDER): the thumb picks a height on the wave
+# (face_t) and the board steers there itself: pointing up or down the face in
+# proportion to how far it has to go. Far away (a quick thumb), it's steep and
+# snappy; close, gentle, levelling off as it arrives. Lifting the thumb holds
+# the height you're at.
+const FACE_GAIN := 4.0        # rad of board angle per face height still to go...
+const FACE_DAMP := 1.0        # ...less this much per face height a second you're already moving that way
 const FOAM_REACH := 1.5       # m ahead of the curl the whitewater pile already reaches: a rebound counts from here
 const FOAM_HOLD := 1.0        # m behind the curl the whitewater shoves you along at, rather than letting you plough deeper
 const FOAM_MAX := 2.0         # s in the whitewater before it buries you
@@ -106,6 +113,9 @@ const LIP_UP := 0.45          # rad: the nose must be pointing at least this far
 const LIP_DOWN := -0.3        # rad: ...and come back down to this...
 const LIP_WINDOW := 0.7       # s ...within this of being up there, with the thumb pointing down the face
 const LIP_MIN_SPEED := 8.0    # m/s: slower than this the turn throws no spray and scores nothing
+const OVER_THE_BACK := 0.35  # rad: reaching the lip nose up more than this is an air (fast enough) or over the back
+const AIR_SPEED := 9.0        # m/s: the speed an air needs; slower, you go over the back
+const LIP_GRAZE := 0.15       # rad: reaching the top nose up at least this (but under OVER_THE_BACK) sets up Off the Lip
 const AIR_GRAVITY := 14.0
 const SPIN_RATE := 7.5
 const MIN_SPEED := 3.0
@@ -161,6 +171,12 @@ var _since_cut := 10.0     # s since the board was last turning round (cutting)
 var _was_sweeping := false   # last tick the thumb was pushed out far enough for its angle to count as a sweep
 ## Set by main each tick: the thumb is positioning (slow), not snapping. Scripted riders leave it false.
 var fine := false
+var hold_enabled := true      # settings: height hold for the stick
+## Set by main each tick (settings): face steering, and the height the thumb asks for (-1: none).
+var face_mode := false
+var face_t := -1.0
+var face_goal := -1.0         # the height being steered to (the thumb's, or held since it lifted); -1 when not face steering
+var _face_hold := -1.0
 var holding := false          # holding height (fine, near level)
 var hold_t := 0.0             # the height being held
 var _light_time := 0.0       # s the thumb has been near the stick's centre
@@ -234,6 +250,8 @@ func reset(start_x: float) -> void:
 	_since_cut = 10.0
 	holding = false
 	hold_t = t
+	face_goal = -1.0
+	_face_hold = -1.0
 	_light_time = 0.0
 	_stall_hold = false
 	pump_phase = PUMP_IDLE
@@ -360,7 +378,7 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 			# Coming out of a turn-around the nose keeps the cutback's pace.
 			var cap := CUTBACK_TURN if absf(phi) > MAX_PHI else TURN
 			var target := clampf(want, -MAX_PHI, MAX_PHI) * strength
-			if fine and absf(target) < HOLD_ANG and pump_phase == PUMP_IDLE and t >= 0.0 and absf(phi) <= MAX_PHI:
+			if hold_enabled and fine and absf(target) < HOLD_ANG and pump_phase == PUMP_IDLE and t >= 0.0 and absf(phi) <= MAX_PHI:
 				# Positioning: the aim is a climb or drop, none near level
 				# (HOLD_DEAD), gentle past it (squared), the same as the carve
 				# at HOLD_ANG; the board holds the height that reaches.
@@ -383,6 +401,26 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 			cutting = true
 			var world_rate := clampf(diff * AIM_GAIN, -1.0, 1.0) * CUTBACK_TURN * strength
 			target_rate = facing * world_rate   # phi is measured from facing
+	if face_mode:
+		# The thumb picks a height; the board steers there (unless turning
+		# round or stalling, which the stick still does). Pumping, it rides
+		# level and the pump does the up and down.
+		if face_t >= 0.0:
+			_face_hold = -1.0
+			face_goal = face_t
+		else:
+			if _face_hold < 0.0:
+				_face_hold = clampf(t, 0.05, 0.95)
+			face_goal = _face_hold
+		if not cutting and not _stall_hold:
+			var want_phi := 0.0
+			if pump_phase == PUMP_IDLE:
+				var climbing := v * sin(phi) / flen   # face heights a second
+				want_phi = clampf((face_goal - t) * FACE_GAIN - climbing * FACE_DAMP, -MAX_PHI, MAX_PHI)
+			var cap := CUTBACK_TURN if absf(phi) > MAX_PHI else TURN
+			target_rate = clampf((want_phi - phi) * AIM_GAIN, -1.0, 1.0) * cap
+	else:
+		face_goal = -1.0
 	# For drawing (lean, spray), in world terms: the way the board is actually
 	# turning. phi is measured from facing, so its sign flips when you pass
 	# vertical in a cutback, but the turn (and the lean into it) doesn't.
@@ -406,7 +444,7 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 		if facing > 0.0 and near_foam and _clock - _rebound_time < REBOUND_GRACE:
 			_rebounded = true
 	var turning_around := cutting or absf(phi) > MAX_PHI
-	if not steering:
+	if not steering and not face_mode:
 		phi = lerpf(phi, 0.0, 1.0 - exp(-RECENTER * dt))
 	if not turning_around and absf(phi) > MAX_PHI:
 		phi = move_toward(phi, signf(phi) * MAX_PHI, TURN * dt)
@@ -442,18 +480,24 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 	else:
 		_foam_time = 0.0
 
-	if t >= 1.0 and turning_around:
-		t = 1.0  # turning around off the top: carry on with the turn
+	if t >= 1.0 and (turning_around or _since_cut < CUT_MEMORY):
+		t = 1.0  # turning around off the top (or just finishing it): carry on with the turn
 	elif t >= 1.0:
-		if h > 0.6 and v > 9.0:
-			_launch()
+		# Up through the lip: with the speed for it, an air. Going up like
+		# you're going for one without it, you go over the back and lose the
+		# wave (no bouncing off the top). Grazing it nearly level, you ride
+		# along the top until you turn down.
+		if h > OVER_THE_BACK:
+			if v > AIR_SPEED:
+				_launch()
+			else:
+				_wipeout("Went over the back of the wave")
 			return
 		t = 1.0
-		if h > 0.35:
-			_lip_top = true   # bounced off the top: scores once you snap it down (_check_lip_hit)
-			v *= 0.92
-		phi = minf(-absf(phi) * 0.8, -0.25)
-		turn_rate = 0.0
+		if h > LIP_GRAZE:
+			_lip_top = true   # at the very top: snapping down from here is Off the Lip (_check_lip_hit)
+		phi = minf(phi, 0.0)
+		turn_rate = minf(turn_rate, 0.0)
 	_check_cutback()
 	_check_lip_hit(steering and atan2(aim.y, aim.x * facing) < -0.2, turning_around)
 

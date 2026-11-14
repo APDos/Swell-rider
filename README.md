@@ -10,6 +10,11 @@ Side-view wave riding in Godot 4.3+. Everything (wave, surfer, HUD) is built in 
   - In the air: thumb sideways spins you. Land within about 40° of a full rotation.
 - **Left thumb: pump.** Hold anywhere on the left half to drive down the face, lift to turn off the bottom and carve back up. See below.
 - After a wipeout, tap to paddle back out. Mid-ride, hold the ↻ in the top-right corner to restart.
+- **⚙ Settings** (next to ↻): pauses and lets you switch control options to try out. Changing anything starts a new ride. Choices are saved on the phone and written into each ride recording.
+  - **Steering: Stick** (above). **Height hold** on/off.
+  - **Steering: Face**: your thumb's height on the screen is your height on the wave. Where you touch is where you are now; sliding up to the top of the screen takes you up to the lip, down to the bottom takes you down to the trough. The board steers itself there: a quick thumb is a steep, snappy move, a slow one gentle. Lift and you hold that height. Touching down near the very top or bottom counts as touching a bit further in, so there's always room to move both ways. Cutbacks and the stall work as with the stick.
+  - **Steering: Slider**: the same, but the screen is a fixed slider: top = lip, bottom = trough, wherever you touch.
+  - **Height marker** on/off: Face and Slider show a bar on the wave at the height you're steering to.
 
 ## Build and install
 Godot 4.7.2 with its iOS export template, and **Xcode 26 or later** (Godot 4.7's iOS template links against the iOS 26 SDK). Minimum iOS is 16. Sign in to your Apple account in Xcode > Settings > Accounts, plug in and unlock the phone (trust the developer profile on first install: Settings > General > VPN & Device Management), then:
@@ -43,7 +48,7 @@ Replay one through the game to watch it (`godot --path . -- --replay=rides/ride_
 - **Cutback**: when you've run out onto the shoulder, turn back toward the barrel and the power: sweep a reverse C with your right thumb and the nose follows it round. If you stop part way, the board stays where it got to. Sweep forward (up, up-ahead, ahead) to come back down the line for a **Cutback**. A cutback keeps about 75% of your speed and stays fairly low on the face (the board is laid over on its rail).
 - **Rebound**: aim at the whitewater after cutting back. It stops you dead, and you have a moment to sweep the turn off it yourself; come around in the foam and it throws you out ahead of the curl, a **Roundhouse Cutback**. Don't turn, hit it high near the lip, or sit in it too long, and it gets you.
 - Points come from speed, multiplied by how close you are to the pocket (up to x3).
-- **Off the Lip**: hit the top fast at a moderate angle. **Air**: hit the top fast and steep (steeper than about 35°, and fast). You'll need to pump up that speed first.
+- **Off the Lip**: reach the top at a moderate angle (under about 20°) and snap down. **Air**: go up through the lip steeper than about 20° with speed (over 9 m/s). You'll need to pump up that speed first. Go up through the lip like that without the speed and you go over the back and lose the wave. There's no bouncing off the top.
 - Whenever the lip hangs between the camera and you (riding high by the curl, or in the whitewater), your surfer shows through it as a glowing silhouette.
 - **Barrel**: stay mid-face just ahead of the curl where the lip is pitching. When the lip covers you, your surfer glows through the water, going from cyan to gold as you get deeper. A depth meter shows the same thing. Deeper barrels score more per second.
 
@@ -54,6 +59,7 @@ Replay one through the game to watch it (`godot --path . -- --replay=rides/ride_
 - `scripts/touch.gd`: the thumb controls (aim, pump, taps), read by main.gd each tick.
 - `scripts/autopilot.gd`: a scripted rider that pumps in rhythm. Used by `--autopilot` and by the tests.
 - `scripts/hud.gd`: on-screen UI.
+- `scripts/settings.gd` / `scripts/settings_menu.gd`: the control options and the ⚙ menu.
 - `scripts/recorder.gd` / `scripts/replay.gd`: ride recordings and playing them back.
 
 ## Tests
