@@ -38,6 +38,7 @@ func _run() -> void:
 	await _straight_back_is_a_stall()
 	await _reverse_c_cuts_back()
 	await _full_sweep_loops_round_the_bottom()
+	await _crossing_the_stick_turns_the_short_way()
 	await _rebound_off_whitewater()
 	await _straight_into_whitewater_wipes_out()
 	await _lip_hit_scores()
@@ -404,8 +405,10 @@ func _straight_back_is_a_stall() -> void:
 ## The cutback is a reverse-C sweep of the thumb: up, up-back, back, down-back.
 ## The nose follows it up and round to point at the barrel, with no stall on the
 ## way (straight back mid-sweep keeps the turn going). Then, facing the barrel,
-## straight back (now →) stalls, and a forward sweep (up, up-right, right) takes
-## you back down the line: a Cutback.
+## a fresh touch straight back (now →) stalls, and a forward sweep (up,
+## up-right, right) takes you back down the line: a Cutback. (Sliding the thumb
+## straight across to → without lifting it turns you back instead:
+## _crossing_the_stick_turns_the_short_way.)
 func _reverse_c_cuts_back() -> void:
 	await _ride_setup(60.0)
 	var s = main.surfer
@@ -431,9 +434,13 @@ func _reverse_c_cuts_back() -> void:
 		_fail("the reverse-C sweep shouldn't stall on the way round (tail dig reached %.2f)" % max_dig)
 	if s.tail_dig > 0.3:
 		_fail("facing the barrel, pointing at it shouldn't stall (dig %.2f)" % s.tail_dig)
+	_thumb_up()
+	await physics_frame
+	await physics_frame
+	_thumb_down()
 	await _hold_point(RIGHT, 20)
 	if s.facing > 0.0:
-		_fail("facing the barrel with the board level, pointing straight back (→) should stall, not turn you")
+		_fail("facing the barrel with the board level, a fresh touch straight back (→) should stall, not turn you")
 	elif s.tail_dig < 0.5:
 		_fail("facing the barrel, pointing straight back (→) should dig the tail in (dig %.2f)" % s.tail_dig)
 	for dir in [UP, UP_RIGHT]:
@@ -489,6 +496,51 @@ func _full_sweep_loops_round_the_bottom() -> void:
 		_fail("the return should come round the bottom of the face, not back over the top (turned back at t=%.2f)" % t_turned_back)
 	if not "Cutback" in tricks:
 		_fail("the full sweep should score a Cutback (tricks %s)" % [tricks])
+
+
+## The cutback as played on the phone (recorded rides): the thumb sweeps round
+## the stick clockwise (up, ahead, down, back) to turn you through the bottom
+## to face the curl, then moves straight across to point back down the line.
+## That stroke crosses the stick's centre, here 20 px above it (outside the
+## dead zone), so the angle
+## swings round over the top; it must still turn you back the short way, round
+## the bottom, not loop you up into the lip.
+func _crossing_the_stick_turns_the_short_way() -> void:
+	await _ride_setup(60.0)
+	var s = main.surfer
+	s.t = 0.5
+	_thumb_down()
+	var faced_back := false
+	for i in 33:   # a quarter turn every 11 ticks, radius 70 px (inside the stick, so its centre stays put)
+		var a := PI / 2.0 - PI * float(i + 1) / 22.0
+		_drag(0, _left + Vector2(cos(a), -sin(a)) * 70.0)
+		await physics_frame
+		faced_back = faced_back or s.facing < 0.0
+	for i in 40:
+		if s.facing < 0.0 and s.heading() > -0.6:
+			break
+		await physics_frame
+	faced_back = faced_back or s.facing < 0.0
+	var t_cross: float = s.t
+	for i in 8:   # straight across, left to right, passing just above the centre
+		var f := float(i + 1) / 8.0
+		_drag(0, _left + Vector2(lerpf(-70.0, 70.0, f), lerpf(0.0, -40.0, f)))
+		await physics_frame
+	var t_max: float = s.t
+	var flipped_phi := 99.0
+	for i in 90:
+		await physics_frame
+		t_max = maxf(t_max, s.t)
+		if s.facing > 0.0:
+			flipped_phi = s.phi
+			break
+	_thumb_up()
+	if not faced_back:
+		_fail("sweeping round to point back should turn you to face the curl")
+	elif flipped_phi == 99.0:
+		_fail("pointing back down the line after a cutback should turn you back (facing %d)" % int(s.facing))
+	elif flipped_phi > 0.0 or t_max > t_cross + 0.05:
+		_fail("crossing the stick's centre should turn you back round the bottom, not over the top (came round nose %s, t %.2f -> %.2f)" % ["up" if flipped_phi > 0.0 else "down", t_cross, t_max])
 
 
 ## Cut back low (sweep down and back), aim at the whitewater, and sweep the
