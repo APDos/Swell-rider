@@ -35,7 +35,7 @@ const COLUMNS := [
 
 
 ## Start a new file for a ride (closing the last one). seed is the ride's
-## random seed (wave height, closeouts), so a replay gets the same wave.
+## random seed (wave height), so a replay gets the same wave.
 func begin(ride_seed: int) -> void:
 	finish()
 	if not enabled:
@@ -59,7 +59,7 @@ func begin(ride_seed: int) -> void:
 	_file.store_line("# date %s" % Time.get_datetime_string_from_system())
 	_file.store_line("# seed %d" % ride_seed)
 	_file.store_line("# view %d %d" % [int(view.x), int(view.y)])
-	_file.store_line("# wave base_height=%.3f closeout=%.2f,%.2f" % [main.wave.base_height, main.wave.closeout.x, main.wave.closeout.y])
+	_file.store_line("# wave base_height=%.3f" % main.wave.base_height)
 	_file.store_line(",".join(COLUMNS))
 	_prune()
 

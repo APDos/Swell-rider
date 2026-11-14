@@ -59,7 +59,7 @@ Design goals: easy to pick up, hard to master, and it should feel right to real 
 - `scripts/recorder.gd` writes `user://rides/ride_<date>_<time>.csv` for every player ride in debug builds on the phone (or with `-- --record`): per tick, the thumbs and the surfer; `# event <tick> ...` lines for pumps, tricks, wipeouts, restarts. Scripted riders are never recorded.
 - `tools/pull_rides.sh` copies them off the phone into `rides/` (git-ignored). When the user says a ride felt wrong, pull and read the recording: what the thumb did (`stick_*`, `aim_*`, `pump`) against what the board did.
 - `scripts/replay.gd` feeds a recording back as a rider. Headless (`godot --headless --fixed-fps 60 --path . -- --replay=FILE`) it prints `REPLAY MATCHES` or the first diverging tick: phone recordings replay exactly on the Mac. After a physics change, divergence is expected; it marks where that ride now goes differently.
-- Replays depend on the ride's wave coming only from its seed (`main._rng`: wave height and closeouts). Any new gameplay randomness must use `_rng`, never the global `randf`, and aim/pump must stay written exactly (`String.num_scientific`). If you add a recorded column, add it to `COLUMNS` and the row together.
+- Replays depend on the ride's wave coming only from its seed (`main._rng`: wave height). Any new gameplay randomness must use `_rng`, never the global `randf`, and aim/pump must stay written exactly (`String.num_scientific`). If you add a recorded column, add it to `COLUMNS` and the row together.
 
 ## Coordinates
 - +X is down the line (the surfer rides right), +Y is up, +Z is toward shore (where the camera sits).

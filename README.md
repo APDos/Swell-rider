@@ -46,12 +46,11 @@ Replay one through the game to watch it (`godot --path . -- --replay=rides/ride_
 - **Off the Lip**: hit the top fast at a moderate angle. **Air**: hit the top fast and steep (steeper than about 35°, and fast). You'll need to pump up that speed first.
 - Whenever the lip hangs between the camera and you (riding high by the curl, or in the whitewater), your surfer shows through it as a glowing silhouette.
 - **Barrel**: stay mid-face just ahead of the curl where the lip is pitching. When the lip covers you, your surfer glows through the water, going from cyan to gold as you get deeper. A depth meter shows the same thing. Deeper barrels score more per second.
-- **Closeout sections**: a steep section appears ahead ("Section ahead — pump for speed!"). The curl races through it at 28 m/s, so you need to have pumped your way past it before the curl gets there.
 
 ## Code map
 - `scripts/wave.gd` + `shaders/wave_shape.gdshaderinc`: the wave shape. The vertex shader (`shaders/wave.gdshader`) builds the wave and lip from a flat grid using the functions in the include. `wave.gd` has a CPU copy of those functions to keep the surfer on the face. The tuning values live only in `wave.gd`'s `SHAPE` table and are pushed to the shader as uniforms. **If you change a formula in one copy, change it in the other and run the tests.** The parity test will catch a mismatch.
 - `scripts/surfer.gd`: face-space physics (x along the line, t up the face, speed, heading), plus airs and wipeouts. The tuning constants are at the top.
-- `scripts/main.gd`: curl and closeout scheduling, scoring, camera, environment. Gameplay runs in `_physics_process` at a fixed 60 ticks per second; drawing runs in `_process`, blended between ticks.
+- `scripts/main.gd`: the curl, scoring, camera, environment. Gameplay runs in `_physics_process` at a fixed 60 ticks per second; drawing runs in `_process`, blended between ticks.
 - `scripts/touch.gd`: the thumb controls (aim, pump, taps), read by main.gd each tick.
 - `scripts/autopilot.gd`: a scripted rider that pumps in rhythm. Used by `--autopilot` and by the tests.
 - `scripts/hud.gd`: on-screen UI.

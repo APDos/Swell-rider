@@ -4,7 +4,6 @@ var score_label: Label
 var stats_label: Label
 var popup_label: Label
 var msg_label: Label
-var warn_label: Label
 var barrel_label: Label
 var depth_bar: ProgressBar
 var pump_label: Label
@@ -48,10 +47,6 @@ func _ready() -> void:
 	depth_bar.add_theme_stylebox_override("fill", fill)
 	depth_bar.visible = false
 	add_child(depth_bar)
-	warn_label = _mk(26, true)
-	warn_label.offset_top = 380
-	warn_label.add_theme_color_override("font_color", Color(1.0, 0.75, 0.3))
-	warn_label.text = "Section ahead — pump for speed!"
 	msg_label = _mk(38, true)
 
 	var help := _mk(16)
@@ -124,9 +119,6 @@ func set_barrel(on: bool, secs: float, depth: float) -> void:
 		var sb := depth_bar.get_theme_stylebox("fill") as StyleBoxFlat
 		sb.bg_color = c
 
-
-func set_warning(on: bool) -> void:
-	warn_label.visible = on
 
 
 func show_message(text: String) -> void:

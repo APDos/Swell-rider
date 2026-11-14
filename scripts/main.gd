@@ -15,8 +15,7 @@ const Replay := preload("res://scripts/replay.gd")
 
 enum { PLAYING, WIPEOUT }
 
-const PEEL_BASE := 9.0       # m/s the break peels down the line
-const PEEL_CLOSEOUT := 28.0  # m/s through a closeout section
+const PEEL_BASE := 9.5       # m/s the break peels down the line: a little faster than you go without pumping (caught in about 20 s)
 const RESTART_HOLD := 0.5    # s to hold restart mid-ride, so a stray press doesn't end the run
 
 var state := PLAYING
@@ -49,7 +48,7 @@ var _prev_curl := 0.0       # curl x at the previous tick, for smooth drawing
 var touch   # touch.gd: the thumbs
 var _restart_held := 0.0
 var recorder   # recorder.gd: writes each ride to a file (phone debug builds, or --record)
-var _rng := RandomNumberGenerator.new()   # the ride's wave (height, closeouts), seeded per ride so a replay gets the same one
+var _rng := RandomNumberGenerator.new()   # the ride's wave (height), seeded per ride so a replay gets the same one
 var _replay_check := false  # --replay headless: print how the replay compares, then quit
 
 
@@ -186,7 +185,6 @@ func _reset() -> void:
 	_rng.seed = ride_seed
 	wave.base_height = _rng.randf_range(4.2, 5.4)
 	wave.curl_x = 0.0
-	_schedule_closeout()
 	surfer.reset(13.0)
 	if rider != null and rider.has_method("reset"):
 		rider.reset()
@@ -199,11 +197,6 @@ func _reset() -> void:
 	recorder.finish()
 	if rider == null and not barrel_test:
 		recorder.begin(ride_seed)
-
-
-func _schedule_closeout() -> void:
-	var x0: float = wave.curl_x + _rng.randf_range(150.0, 280.0)
-	wave.closeout = Vector3(x0, x0 + _rng.randf_range(12.0, 24.0), 0.95)
 
 
 func use_autopilot() -> void:
@@ -278,10 +271,7 @@ func _physics_process(dt: float) -> void:
 			barrel_points = 0.0
 			barrel_max_depth = 0.0
 		hud.set_barrel(surfer.in_barrel, barrel_time, surfer.barrel_depth)
-		hud.set_warning(wave.closeout.x - surfer.x < 70.0 and wave.closeout.y > surfer.x)
 		hud.set_stats(score, best, mult)
-	else:
-		hud.set_warning(false)
 
 
 func _process(delta: float) -> void:
@@ -298,12 +288,7 @@ func _process(delta: float) -> void:
 
 func _update_curl(dt: float) -> void:
 	var peel := PEEL_BASE + 1.5 * sin(ride_time * 0.35)
-	var c: Vector3 = wave.closeout
-	if wave.curl_x > c.x - 3.0 and wave.curl_x < c.y:
-		peel = PEEL_CLOSEOUT
 	wave.curl_x += peel * dt
-	if wave.curl_x > c.y + 5.0:
-		_schedule_closeout()
 
 
 ## Side-on camera from the shore side: surfer rides left -> right, the curl

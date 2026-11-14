@@ -1,6 +1,6 @@
 extends SceneTree
 ## Design checks on pumping and stalling. The rides use the real main scene
-## (curl speed changes, closeout sections) with scripted riders plugged in:
+## (the curl's changing speed) with scripted riders plugged in:
 ## - riding without pumping gets caught by the wave
 ## - sloppy pumping keeps you going, good pumping is clearly faster
 ## - mashing the key is capped at one pump per MIN_PUMP_INTERVAL and is slower than a real rhythm
