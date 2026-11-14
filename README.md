@@ -23,10 +23,10 @@ xcrun devicectl device install app --device <device id> build/ios/SwellRider.ipa
 - The break peels down the line at about 9 m/s. If the curl catches you, you wipe out.
 - **Pumping is how you keep up.** The wave alone won't carry you: without pumping, the curl catches you within about 20 seconds. One pump is a small down-and-up S-turn high on the face, the way surfers pump down the line:
   1. Hold the right thumb: drive. The nose drops down the face and you compress, trading a bit of height for speed.
-  2. Lift it: you turn off the bottom of that drop. That's where the pump makes its speed (up to about +14 km/h), and the board then carves back up to the height you started from, so pumping keeps you on your line.
+  2. Lift it: you turn off the bottom of that drop. That's where the pump makes its speed, and the board then carves back up to the height you started from, so pumping keeps you on your line.
   3. A quick tap is just a nose flick. Holding past about half a second runs your legs out of travel: the board flattens out where it is and bogs until you let go. Keep holding for a second or more and you've chosen that lower line, so you stay there when you let go.
 - With no thumb on the stick the board trims straight across at the height it's at; pointing picks your line.
-- **Pump quality** is shown after each pump with the speed it added ("Pump", "Good pump", "Perfect pump"). A perfect pump gives 3x the speed of a sloppy one. To get one:
+- **Pump quality** is shown after each pump ("Pump", "Good pump", "Perfect pump"). A perfect pump gives 3x the speed of a sloppy one. To get one:
   - pump on the steep upper half of the face, not low in the flats or right at the lip
   - drive for about a quarter second before releasing
   - keep a steady rhythm, roughly one pump a second
@@ -36,7 +36,7 @@ xcrun devicectl device install app --device <device id> build/ios/SwellRider.ipa
 - **Cutback**: when you've run out onto the shoulder, turn back toward the barrel and the power: sweep a reverse C with your left thumb and the nose follows it round. If you stop part way, the board stays where it got to. Sweep forward (up, up-ahead, ahead) to come back down the line for a **Cutback**. A cutback keeps about 75% of your speed and stays fairly low on the face (the board is laid over on its rail).
 - **Rebound**: aim at the whitewater after cutting back. It stops you dead, and you have a moment to sweep the turn off it yourself; come around in the foam and it throws you out ahead of the curl, a **Roundhouse Cutback**. Don't turn, hit it high near the lip, or sit in it too long, and it gets you.
 - Points come from speed, multiplied by how close you are to the pocket (up to x3).
-- **Off the Lip**: hit the top fast at a moderate angle. **Air**: hit the top fast and steep (heading > ~35°, speed > ~32 km/h). You'll need to pump up that speed first.
+- **Off the Lip**: hit the top fast at a moderate angle. **Air**: hit the top fast and steep (steeper than about 35°, and fast). You'll need to pump up that speed first.
 - Whenever the lip hangs between the camera and you (riding high by the curl, or in the whitewater), your surfer shows through it as a glowing silhouette.
 - **Barrel**: stay mid-face just ahead of the curl where the lip is pitching. When the lip covers you, your surfer glows through the water, going from cyan to gold as you get deeper. A depth meter shows the same thing. Deeper barrels score more per second.
 - **Closeout sections**: a steep section appears ahead ("Section ahead — pump for speed!"). The curl races through it at 28 m/s, so you need to have pumped your way past it before the curl gets there.

@@ -1,7 +1,7 @@
 extends CanvasLayer
 
 var score_label: Label
-var speed_label: Label
+var stats_label: Label
 var popup_label: Label
 var msg_label: Label
 var warn_label: Label
@@ -19,8 +19,8 @@ func _ready() -> void:
 	var ty := inset.position.y
 	score_label = _mk(40)
 	score_label.position = Vector2(28 + lx, 18 + ty)
-	speed_label = _mk(22)
-	speed_label.position = Vector2(30 + lx, 70 + ty)
+	stats_label = _mk(22)
+	stats_label.position = Vector2(30 + lx, 70 + ty)
 	pump_label = _mk(24)
 	pump_label.position = Vector2(30 + lx, 102 + ty)
 	pump_label.modulate.a = 0.0
@@ -88,7 +88,7 @@ func _process(dt: float) -> void:
 
 
 ## Quick read on each pump so players can learn what a good one feels like.
-func pump_feedback(quality: float, gain: float) -> void:
+func pump_feedback(quality: float, _gain: float) -> void:
 	if quality >= 0.9:
 		pump_label.text = "Perfect pump"
 		pump_label.add_theme_color_override("font_color", Color(0.45, 1.0, 0.55))
@@ -98,14 +98,13 @@ func pump_feedback(quality: float, gain: float) -> void:
 	else:
 		pump_label.text = "Pump"
 		pump_label.add_theme_color_override("font_color", Color(0.85, 0.9, 0.95))
-	pump_label.text += "  +%d km/h" % roundi(gain * 3.6)
 	_pump_t = 0.9
 	pump_label.modulate.a = 1.0
 
 
-func set_stats(score: float, best: float, kmh: float, mult: float) -> void:
+func set_stats(score: float, best: float, mult: float) -> void:
 	score_label.text = "%d" % int(score)
-	speed_label.text = "%d km/h   x%.1f   best %d" % [int(kmh), mult, int(best)]
+	stats_label.text = "x%.1f   best %d" % [mult, int(best)]
 
 
 func popup(text: String) -> void:

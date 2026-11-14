@@ -656,10 +656,6 @@ func _update_highlight(delta: float) -> void:
 	_halo.scale = Vector3(sc, sc, sc)
 
 
-func speed_kmh() -> float:
-	return v * 3.6
-
-
 # ---- visuals -------------------------------------------------------------------
 
 func _mat(c: Color) -> StandardMaterial3D:

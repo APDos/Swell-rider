@@ -245,7 +245,7 @@ func _physics_process(dt: float) -> void:
 			barrel_max_depth = 0.0
 		hud.set_barrel(surfer.in_barrel, barrel_time, surfer.barrel_depth)
 		hud.set_warning(wave.closeout.x - surfer.x < 70.0 and wave.closeout.y > surfer.x)
-		hud.set_stats(score, best, surfer.speed_kmh(), mult)
+		hud.set_stats(score, best, mult)
 	else:
 		hud.set_warning(false)
 
