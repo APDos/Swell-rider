@@ -1,7 +1,9 @@
 extends CanvasLayer
 ## The game's controls: thumbs on a phone.
 ## - Left half: a floating stick. Touch anywhere and point where you want the
-##   nose to go. Ahead of the board it carves; behind it, the nose swings round
+##   nose to go. Where you touch down is always neutral: a thumb landing on the
+##   glass rolls 20-40 px as it flattens (seen in recorded rides), so for the
+##   first moment the stick's centre follows it. Ahead of the board it carves; behind it, the nose swings round
 ##   (sweep a reverse C up and round for a cutback); straight back with the
 ##   board running level is the stall. In the air, sideways spins.
 ## - Right half: hold to pump (drive), lift your thumb to turn off the bottom.
@@ -11,6 +13,8 @@ extends CanvasLayer
 const RADIUS := 80.0        # px (viewport): size of the drawn stick; the centre follows your thumb past it
 const DEADZONE := 0.15      # of RADIUS: smaller than this is no input
 const FULL := 0.45          # of RADIUS: a push this long is already full strength
+const SETTLE_TICKS := 7     # physics ticks (~0.12 s) after touch-down that the thumb is still settling...
+const SETTLE_PX := 45.0     # ...as long as it stays this close (px, viewport) to where it landed: the stick's centre follows it, so a still thumb steers nothing. Further, sooner, is a real flick, measured from where it landed.
 const RESTART_SIZE := Vector2(120, 100)   # the ↻ hold area, top-right corner
 
 var main   # main.gd, for its state
@@ -25,6 +29,9 @@ var _tapped := false
 var _stick_id := -1
 var _stick_origin := Vector2.ZERO
 var _stick_pos := Vector2.ZERO
+var _stick_down := Vector2.ZERO   # where the left thumb landed
+var _stick_down_tick := 0
+var _stick_settled := false       # past the settling moment: the centre stays put
 var _pump_id := -1
 var _pump_pos := Vector2.ZERO
 var _restart_id := -1
@@ -87,6 +94,9 @@ func _input(event: InputEvent) -> void:
 					_stick_id = event.index
 					_stick_origin = p
 					_stick_pos = p
+					_stick_down = p
+					_stick_down_tick = Engine.get_physics_frames()
+					_stick_settled = false
 			elif _pump_id == -1:
 				_pump_id = event.index
 				_pump_pos = p
@@ -105,6 +115,18 @@ func _input(event: InputEvent) -> void:
 	elif event is InputEventScreenDrag:
 		if event.index == _stick_id:
 			_stick_pos = event.position
+			if not _stick_settled:
+				if Engine.get_physics_frames() - _stick_down_tick > SETTLE_TICKS:
+					_stick_settled = true
+				elif _stick_pos.distance_to(_stick_down) <= SETTLE_PX:
+					# The thumb settling onto the glass: still neutral.
+					_stick_origin = _stick_pos
+					_set_stick(Vector2.ZERO)
+					_canvas.queue_redraw()
+					return
+				else:
+					_stick_settled = true   # a quick flick: it counts from where the thumb landed
+					_stick_origin = _stick_down
 			var off := _stick_pos - _stick_origin
 			# Past the edge, the stick's centre follows your thumb, so turning
 			# back the other way responds straight away.

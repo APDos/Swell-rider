@@ -27,6 +27,7 @@ func _run() -> void:
 	await _corner_tap_does_not_reset()
 	await _corner_hold_resets()
 	await _tap_after_wipeout_paddles_out()
+	await _settling_thumb_is_neutral()
 	await _pointing_down_is_not_a_pump()
 	await _right_thumb_pumps()
 	await _pump_drives_then_rises()
@@ -641,6 +642,45 @@ func _lip_hit_scores() -> void:
 			_fail("carving up to the lip and snapping down should score a lip hit (tricks %s, state %d)" % [tricks, s.state])
 		elif not snap and hit:
 			_fail("carving up and levelling off shouldn't score a lip hit (tricks %s)" % [tricks])
+
+
+## Where the left thumb lands is neutral. On the phone a still thumb rolls
+## about 30 px (upward, mostly) in the first ticks as it flattens onto the
+## glass (recorded rides); that must not steer. Moving on from there steers as
+## usual, and a quick flick counts in full from where the thumb landed.
+func _settling_thumb_is_neutral() -> void:
+	await _ride_setup(60.0)
+	var s = main.surfer
+	var t0: float = s.t
+	_thumb_down()
+	await physics_frame
+	_drag(0, _left + Vector2(2, -26))
+	await physics_frame
+	_drag(0, _left + Vector2(2, -33))
+	var max_aim := 0.0
+	for i in 40:
+		await physics_frame
+		max_aim = maxf(max_aim, main.touch.aim.length())
+	var drift: float = absf(s.t - t0)
+	_drag(0, _left + Vector2(2, -33 - 60))
+	await physics_frame
+	await physics_frame
+	var steer_after: Vector2 = main.touch.aim
+	_thumb_up()
+	await physics_frame
+	await physics_frame
+	_thumb_down()
+	_drag(0, _left + Vector2(0, -60))
+	await physics_frame
+	await physics_frame
+	var flick: Vector2 = main.touch.aim
+	_thumb_up()
+	if max_aim > 0.0 or drift > 0.03:
+		_fail("a still thumb settling onto the glass shouldn't steer (aim %.2f, t moved %.3f)" % [max_aim, drift])
+	if steer_after.y < 0.9:
+		_fail("after settling, pushing the thumb up should steer up (aim %s)" % steer_after)
+	if flick.y < 0.9:
+		_fail("a quick flick right after touching down should steer at once (aim %s)" % flick)
 
 
 ## A player with no thumb on the stick.
