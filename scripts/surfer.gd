@@ -407,11 +407,11 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 				return
 		else:
 			_foam_square = 0.0
-	else:
-		_foam_square = 0.0
 		if _foam_time > FOAM_MAX:
 			_wipeout("Buried in the whitewater")
 			return
+	else:
+		_foam_square = 0.0
 	if t < -FLATS_OUT:
 		_wipeout("Rode off the front of the wave")
 	elif v < MIN_SPEED:
