@@ -17,6 +17,15 @@ const SECTION := "controls_v2"   # new section when the options change, so old s
 ##   original stick).
 var long_range := true
 var height_hold := false   # a slow thumb near level holds your height (surfer.gd HOLD_*)
+var pump_dive := true      # while a pump drives, a steered climb is set aside (surfer.gd _pump_owns)
+
+
+## What a recording's header means for options it doesn't mention: they
+## didn't exist yet, so the game behaved as if they were off.
+func recording_defaults() -> void:
+	long_range = false
+	height_hold = false
+	pump_dive = false
 
 
 func load_saved() -> void:
@@ -25,21 +34,24 @@ func load_saved() -> void:
 		return
 	long_range = bool(cfg.get_value(SECTION, "long_range", long_range))
 	height_hold = bool(cfg.get_value(SECTION, "height_hold", height_hold))
+	pump_dive = bool(cfg.get_value(SECTION, "pump_dive", pump_dive))
 
 
 func save() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value(SECTION, "long_range", long_range)
 	cfg.set_value(SECTION, "height_hold", height_hold)
+	cfg.set_value(SECTION, "pump_dive", pump_dive)
 	cfg.save(PATH)
 
 
-## For the recording's header: `range=long height_hold=0`.
+## For the recording's header: `range=long height_hold=0 pump_dive=1`.
 func describe() -> String:
-	return "range=%s height_hold=%d" % ["long" if long_range else "short", int(height_hold)]
+	return "range=%s height_hold=%d pump_dive=%d" % ["long" if long_range else "short", int(height_hold), int(pump_dive)]
 
 
-## Reads describe()'s format back (a recording's `# settings` line).
+## Reads describe()'s format back (a recording's `# settings` line). Options
+## not named keep their value; recording_defaults() first for a whole header.
 func parse(text: String) -> void:
 	for part in text.split(" ", false):
 		var kv := part.split("=")
@@ -52,3 +64,5 @@ func parse(text: String) -> void:
 				long_range = false
 			"height_hold":
 				height_hold = kv[1] == "1"
+			"pump_dive":
+				pump_dive = kv[1] == "1"

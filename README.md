@@ -13,6 +13,7 @@ Side-view wave riding in Godot 4.3+. Everything (wave, surfer, HUD) is built in 
 - **⚙ Settings** (next to ↻): pauses and lets you switch control options to try out. Changing anything starts a new ride. Choices are saved on the phone and written into each ride recording.
   - **Steering range: Long** (above) or **Short** (the original stick).
   - **Height hold** on/off (off by default): a slow thumb near level holds your height on the wave.
+  - **Pump owns the dive** on/off (on by default): while you hold a pump, any climb you're steering with the right thumb is set aside, so the nose dips as far as with the right thumb off and the pump keeps its speed. Steering down still adds to the dip.
 
 ## Build and install
 Godot 4.7.2 with its iOS export template, and **Xcode 26 or later** (Godot 4.7's iOS template links against the iOS 26 SDK). Minimum iOS is 16. Sign in to your Apple account in Xcode > Settings > Accounts, plug in and unlock the phone (trust the developer profile on first install: Settings > General > VPN & Device Management), then:

@@ -16,6 +16,7 @@ var _changed := false
 var _root: Control
 var _range_buttons: Array[Button] = []
 var _hold_buttons: Array[Button] = []
+var _dive_buttons: Array[Button] = []
 var _help: Label
 
 
@@ -49,6 +50,11 @@ func _ready() -> void:
 	box.add_child(_label("Height hold (a slow thumb near level holds your height)", 22))
 	_hold_buttons = _segmented(box, ["On", "Off"], func(i):
 		settings.height_hold = i == 0
+		_changed = true
+		_refresh())
+	box.add_child(_label("Pump owns the dive (while you pump, a climb you're steering is set aside)", 22))
+	_dive_buttons = _segmented(box, ["On", "Off"], func(i):
+		settings.pump_dive = i == 0
 		_changed = true
 		_refresh())
 
@@ -89,6 +95,8 @@ func _refresh() -> void:
 	_range_buttons[1].button_pressed = not settings.long_range
 	_hold_buttons[0].button_pressed = settings.height_hold
 	_hold_buttons[1].button_pressed = not settings.height_hold
+	_dive_buttons[0].button_pressed = settings.pump_dive
+	_dive_buttons[1].button_pressed = not settings.pump_dive
 	_help.text = RANGE_HELP[0 if settings.long_range else 1]
 
 

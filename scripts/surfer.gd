@@ -75,6 +75,11 @@ const HOLD_HIGH := 0.85
 # sets how fast the board turns (SNAP_TURN), not how far.
 const RANGE_CURVE := 1.5
 const SNAP_TURN := 1.8        # a quick thumb turns a carve up to this many times faster
+# Pump owns the dive (settings pump_dive): while a pump drives, a climb being
+# steered is set aside so the nose dips as far as with the thumb off. Recorded:
+# holding the steering thumb a little above where it touched down (a +4..10°
+# climb) cut each pump's dip from -14° to -8° and the height it used by a
+# third, so it gave less speed. Steering down still adds to the dip.
 const FOAM_REACH := 1.5       # m ahead of the curl the whitewater pile already reaches: a rebound counts from here
 const FOAM_HOLD := 1.0        # m behind the curl the whitewater shoves you along at, rather than letting you plough deeper
 const FOAM_MAX := 2.0         # s in the whitewater before it buries you
@@ -180,6 +185,7 @@ var long_range := false
 var lift := 0.0
 var lift_on := false
 var snap := 0.0
+var pump_dive := false        # set by main (settings): the pump owns the dive
 var holding := false          # holding height (fine, near level)
 var hold_t := 0.0             # the height being held
 var _light_time := 0.0       # s the thumb has been near the stick's centre
@@ -379,7 +385,7 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 			# toward your thumb (a small adjustment), a full one all the way.
 			# Coming out of a turn-around the nose keeps the cutback's pace.
 			var cap := _carve_cap()
-			var target := _lift_target() if by_lift else clampf(want, -MAX_PHI, MAX_PHI) * strength
+			var target := _pump_owns(_lift_target() if by_lift else clampf(want, -MAX_PHI, MAX_PHI) * strength)
 			if hold_enabled and fine and absf(target) < HOLD_ANG and pump_phase == PUMP_IDLE and t >= 0.0 and absf(phi) <= MAX_PHI:
 				# Positioning: the aim is a climb or drop, none near level
 				# (HOLD_DEAD), gentle past it (squared), the same as the carve
@@ -406,7 +412,7 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 	if by_lift and not steering and not _stall_hold:
 		# Long range with the thumb near the stick's centre (no direction to
 		# read): still carving to its travel up or down.
-		target_rate = clampf((_lift_target() - phi) * AIM_GAIN, -1.0, 1.0) * _carve_cap()
+		target_rate = clampf((_pump_owns(_lift_target()) - phi) * AIM_GAIN, -1.0, 1.0) * _carve_cap()
 	# For drawing (lean, spray), in world terms: the way the board is actually
 	# turning. phi is measured from facing, so its sign flips when you pass
 	# vertical in a cutback, but the turn (and the lean into it) doesn't.
@@ -526,6 +532,11 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 ## Long range: the carve angle for the thumb's travel up or down from touch-down.
 func _lift_target() -> float:
 	return signf(lift) * MAX_PHI * pow(absf(lift), RANGE_CURVE)
+
+
+## Pump owns the dive: during a pump's drive, a steered climb is set aside.
+func _pump_owns(target: float) -> float:
+	return minf(target, 0.0) if pump_dive and pump_phase == PUMP_DRIVE else target
 
 
 ## How fast a carve turns: quicker coming out of a turn-around, and quicker

@@ -197,6 +197,7 @@ func _reset() -> void:
 		ride_seed = rider.ride_seed
 	_rng.seed = ride_seed
 	if rider != null and "settings_text" in rider and rider.settings_text != "":
+		settings.recording_defaults()
 		settings.parse(rider.settings_text)   # ride the recording with its settings
 		if hud != null:
 			hud.set_help(settings)
@@ -291,6 +292,8 @@ func _physics_process(dt: float) -> void:
 	surfer.lift_on = lift_on
 	surfer.long_range = settings.long_range and not barrel_test
 	surfer.hold_enabled = settings.height_hold
+	# The player's settings: scripted riders (autopilot, tests) keep the plain physics.
+	surfer.pump_dive = settings.pump_dive and (rider == null or "settings_text" in rider)
 
 	_prev_curl = wave.curl_x
 	if barrel_test and state == PLAYING:

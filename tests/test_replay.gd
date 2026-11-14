@@ -124,7 +124,7 @@ func _record_and_replay(mode: String) -> void:
 		_fail("no pump events in the recording (%s)" % mode)
 	if text.find(",-1,-1,-1,-1,") < 0 or text.find("stick_x") < 0:
 		_fail("the thumb columns look wrong (%s)" % mode)
-	if text.find("# settings range=" + mode) < 0:
+	if text.find("# settings range=" + mode) < 0 or text.find("pump_dive=") < 0:
 		_fail("the recording should say which settings it was played with (%s)" % mode)
 	if mode == "long" and not r.lift_ons.any(func(on): return on):
 		_fail("a long-range recording should have the thumb's travel (lift)")

@@ -34,6 +34,7 @@ func _run() -> void:
 	await _pointing_down_is_not_a_pump()
 	await _pump_thumb_pumps()
 	await _pump_drives_then_rises()
+	await _pump_owns_the_dive()
 	await _pump_tap_is_only_a_flick()
 	await _pump_hold_uses_up_stroke()
 	await _long_hold_settles_lower()
@@ -903,3 +904,40 @@ func _over_the_lip_is_an_air_or_over_the_back() -> void:
 			_fail("up through the lip at 13 m/s should be an air (state %d, %s)" % [s.state, why[0]])
 		elif not fast and not "over the back" in why[0]:
 			_fail("up through the lip at 6 m/s should go over the back and lose the wave (reached %s, state %d, '%s')" % [reached, s.state, why[0]])
+
+
+## Pump owns the dive (settings pump_dive, on by default). Recorded: holding
+## the steering thumb a little above where it touched down steered a gentle
+## climb that cancelled about half of each pump's dip. With it on, the steering
+## adds nothing to the pump's dip (the nose dips as far as the pump takes it);
+## with it off, the climb takes a good part of the dip back.
+func _pump_owns_the_dive() -> void:
+	var share := {}   # how much the steering adds to the dip at its deepest (degrees, + = cancels it)
+	for case in ["on", "off"]:
+		main.settings.parse("pump_dive=" + ("1" if case == "on" else "0"))
+		await _ride_setup(60.0)
+		var s = main.surfer
+		_thumb_down()
+		for i in 12:   # settle
+			await physics_frame
+		for i in 10:   # slide slowly a little up: a gentle climb
+			_carve(0.25 * float(i + 1) / 10.0, 0.0)
+			await physics_frame
+		for i in 30:
+			await physics_frame
+		var lowest := 99.0
+		_touch(1, _pump_at, true)
+		for i in 25:   # drive
+			await physics_frame
+			if s.heading() < lowest:
+				lowest = s.heading()
+				share[case] = rad_to_deg(s.phi)
+		_touch(1, _pump_at, false)
+		for i in 5:
+			await physics_frame
+		_thumb_up()
+	main.settings.parse("pump_dive=1")
+	if share["on"] > 2.0:
+		_fail("pump owns the dive: a steered climb shouldn't blunt the pump's dip (steering added %+.0f° at its deepest)" % share["on"])
+	if share["off"] < 6.0:
+		_fail("with pump owns the dive off, a steered climb should still blunt the dip (steering added only %+.0f°)" % share["off"])
