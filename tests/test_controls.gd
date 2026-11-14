@@ -39,6 +39,8 @@ func _run() -> void:
 	await _reverse_c_cuts_back()
 	await _full_sweep_loops_round_the_bottom()
 	await _rebound_off_whitewater()
+	await _straight_into_whitewater_wipes_out()
+	await _lip_hit_scores()
 	if _failures == 0:
 		print("PASS test_controls")
 		quit(0)
@@ -532,6 +534,61 @@ func _rebound_off_whitewater() -> void:
 	s.wiped_out.disconnect(on_wipe)
 	if reason[0] == "":
 		_fail("riding into the whitewater facing back and never turning off it should end the ride")
+
+
+## Cut back and point straight at the whitewater: it hits you head on, at once,
+## rather than holding you there facing it until the rebound window runs out.
+func _straight_into_whitewater_wipes_out() -> void:
+	await _ride_setup(14.0)
+	var s = main.surfer
+	var reason := [""]
+	var on_wipe := func(r): reason[0] = r
+	s.wiped_out.connect(on_wipe)
+	_thumb_down()
+	await _hold_point(DOWN, 10)
+	await _point_until(DOWN_LEFT, func(): return s.facing < 0.0, 90)
+	_point(LEFT)
+	var in_foam := -1
+	var wiped := -1
+	for i in 240:
+		await physics_frame
+		if in_foam < 0 and s.x < main.wave.curl_x:
+			in_foam = i
+		if reason[0] != "":
+			wiped = i
+			break
+	_thumb_up()
+	s.wiped_out.disconnect(on_wipe)
+	if in_foam < 0:
+		_fail("pointing back at the curl never reached the whitewater ('%s')" % reason[0])
+	elif reason[0] != "Ran straight into the whitewater":
+		_fail("pointing straight into the whitewater should wipe you out head on (got '%s')" % reason[0])
+	elif wiped - in_foam > 18:
+		_fail("pointing straight into the whitewater took %.2f s to wipe you out; it should be at once" % ((wiped - in_foam) / 60.0))
+
+
+## Carve up high on the face, then snap the nose back down: a lip hit, with
+## spray. Carving up and just levelling off scores nothing.
+func _lip_hit_scores() -> void:
+	var lip_tricks := ["Snap", "Off the Lip"]
+	for snap in [true, false]:
+		await _ride_setup(25.0)
+		var s = main.surfer
+		var tricks := []
+		var on_trick := func(n, _p): tricks.append(n)
+		s.trick_landed.connect(on_trick)
+		_thumb_down()
+		var high := await _point_until(Vector2(1, -0.6), func(): return s.t > 0.85, 120)
+		await _hold_point(DOWN_RIGHT if snap else RIGHT, 50)
+		_thumb_up()
+		s.trick_landed.disconnect(on_trick)
+		var hit := tricks.any(func(n): return n in lip_tricks)
+		if not high:
+			_fail("carving up never got high on the face (t %.2f)" % s.t)
+		elif snap and not hit:
+			_fail("carving up to the lip and snapping down should score a lip hit (tricks %s, state %d)" % [tricks, s.state])
+		elif not snap and hit:
+			_fail("carving up and levelling off shouldn't score a lip hit (tricks %s)" % [tricks])
 
 
 ## A player with no thumb on the stick.

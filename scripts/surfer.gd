@@ -54,6 +54,8 @@ const FOAM_MAX := 2.0         # s in the whitewater before it buries you
 const FOAM_DRAG := 1.5        # 1/s: pushing back into the whitewater stops you (decel = this * v)
 const FOAM_SPEED := 13.0      # m/s the whitewater throws you forward at once you've rebounded (faster than the curl peels, so you get out)
 const REBOUND_GRACE := 2.0    # s from hitting the foam you can stay in it while you come around and get going
+const FOAM_SQUARE := 0.35     # rad: in the foam facing back, a board within this of level is pointing straight into it...
+const FOAM_SQUARE_TIME := 0.12  # s ...and squared up to it this long (not turning off it) is a wipeout: the foam hits you head on
 const FLATS_OUT := 0.8        # face run-outs out in front of the trough before you've left the wave behind
 const BOG := 3.0              # m/s²: bogging low in the trough and out on the flats
 # pumping
@@ -80,6 +82,12 @@ const PUMP_RHYTHM_RANGE := Vector2(0.5, 2.0)  # s between pumps that counts as a
 # tail stall
 const STALL_DRAG := 0.055     # 1/m: tail drag coefficient (decel = STALL_DRAG * dig * v²)
 const STALL_DIG_TIME := 0.18  # s to shift weight back and sink the tail
+# hitting the lip: carve up high, then snap the nose back down
+const LIP_ZONE := 0.78        # t: climbing above this, nose up, loads a lip hit
+const LIP_UP := 0.45          # rad: the nose must be pointing at least this far up the face to load it
+const LIP_DOWN := -0.3        # rad: ...and come back down to this...
+const LIP_WINDOW := 0.7       # s ...within this of being up there, with the thumb pointing down the face
+const LIP_MIN_SPEED := 8.0    # m/s: slower than this the turn throws no spray and scores nothing
 const AIR_GRAVITY := 14.0
 const SPIN_RATE := 7.5
 const MIN_SPEED := 3.0
@@ -99,7 +107,6 @@ var spin := 0.0
 var _air_time := 0.0
 
 var _clock := 0.0
-var _last_trick := -10.0
 enum { PUMP_IDLE, PUMP_DRIVE, PUMP_RISE }
 var pump_phase := PUMP_IDLE
 var pushing := false          # in the drive (down) part of a pump
@@ -139,6 +146,10 @@ var _rebounded := false   # this cutback bounced off the whitewater
 var _rebound_time := -10.0
 var _foam_time := 0.0
 var _was_near_foam := false
+var _foam_square := 0.0   # s squared up to the whitewater, facing back and not turning off it
+var _lip_loaded := -10.0  # clock when the board was last high on the face, nose up (a lip hit to come)
+var _lip_peak := 0.0      # steepest the nose pointed up while loaded
+var _lip_top := false     # reached the very top (t = 1): Off the Lip rather than a Snap
 var turn_rate := 0.0      # rad/s, eases toward steer * TURN
 var _steer := 0.0
 var _wipe_rot := Vector3.ZERO
@@ -160,6 +171,7 @@ var vis_x := 0.0
 
 var _rig: Node3D
 var _spray: CPUParticles3D
+var _lip_spray: CPUParticles3D   # the fan thrown off the tail when you hit the lip
 var _parts: Array[MeshInstance3D] = []
 var _xray: StandardMaterial3D
 var _halo: MeshInstance3D
@@ -189,6 +201,9 @@ func reset(start_x: float) -> void:
 	_rebound_time = -10.0
 	_foam_time = 0.0
 	_was_near_foam = false
+	_foam_square = 0.0
+	_lip_loaded = -10.0
+	_lip_top = false
 	_was_steering = false
 	_stall_hold = false
 	pump_phase = PUMP_IDLE
@@ -359,13 +374,13 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 			_launch()
 			return
 		t = 1.0
-		if v > 8.0 and h > 0.35 and _clock - _last_trick > 0.8:
-			_last_trick = _clock
-			trick_landed.emit("Off the Lip", 250)
+		if h > 0.35:
+			_lip_top = true   # bounced off the top: scores once you snap it down (_check_lip_hit)
 			v *= 0.92
 		phi = minf(-absf(phi) * 0.8, -0.25)
 		turn_rate = 0.0
 	_check_cutback()
+	_check_lip_hit(steering and atan2(aim.y, aim.x * facing) < -0.2, turning_around)
 
 	var k: float = wave.k_at(x)
 	in_barrel = d > 0.0 and d < 7.0 and t > 0.2 and t < 0.7 and k > 0.55
@@ -383,6 +398,17 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 		if (t > 0.8 and not turning_around) or not rebounding:
 			_wipeout("The whitewater caught you" if t < 0.3 else "The lip landed on you")
 			return
+		# Pointing straight into it, not turning off it: it hits you head on.
+		# Bouncing up off it (nose up the face) or turning round is the rebound.
+		if facing < 0.0 and not turning_around and absf(heading()) < FOAM_SQUARE:
+			_foam_square += dt
+			if _foam_square >= FOAM_SQUARE_TIME:
+				_wipeout("Ran straight into the whitewater")
+				return
+		else:
+			_foam_square = 0.0
+	else:
+		_foam_square = 0.0
 		if _foam_time > FOAM_MAX:
 			_wipeout("Buried in the whitewater")
 			return
@@ -403,6 +429,39 @@ func _check_cutback() -> void:
 		else:
 			trick_landed.emit("Cutback", 400)
 		_rebounded = false
+
+
+## Hitting the lip: carve up high with the nose up, then snap it back down the
+## face (thumb pointing down) before the moment's gone. That's the hit that
+## throws a fan of spray off the tail. Reaching the very top first makes it an
+## Off the Lip, otherwise it's a Snap. The harder you were driving up and the
+## faster you're going, the more it scores.
+func _check_lip_hit(thumb_down: bool, turning_around: bool) -> void:
+	var h := heading()
+	if turning_around:
+		_lip_loaded = -10.0   # a cutback over the top scores as a cutback
+		_lip_top = false
+		return
+	if t >= LIP_ZONE and h >= LIP_UP:
+		if _clock - _lip_loaded > LIP_WINDOW:
+			_lip_peak = 0.0
+		_lip_loaded = _clock
+		_lip_peak = maxf(_lip_peak, h)
+		return
+	if _clock - _lip_loaded > LIP_WINDOW:
+		_lip_top = false
+		return
+	if h <= LIP_DOWN and thumb_down:
+		_lip_loaded = -10.0
+		var top := _lip_top
+		_lip_top = false
+		if v < LIP_MIN_SPEED:
+			return
+		# How hard: the arc from the steepest nose-up to now, and the speed through it.
+		var arc := _lip_peak - h
+		var power := clampf(arc / 1.0, 0.6, 1.3) * clampf(v / 12.0, 0.7, 1.3)
+		throw_spray(power)
+		trick_landed.emit("Off the Lip" if top else "Snap", int(roundf((350.0 if top else 250.0) * power / 10.0)) * 10)
 
 
 ## The board's actual heading on the face, measured from the facing direction
@@ -538,6 +597,8 @@ func _score_pump() -> float:
 
 func _launch() -> void:
 	state = AIR
+	_lip_loaded = -10.0
+	_lip_top = false
 	phi = heading()
 	pump_phase = PUMP_IDLE
 	pushing = false
@@ -807,3 +868,28 @@ func _build_rig() -> void:
 	_spray.mesh = drop
 	_spray.emitting = false
 	_rig.add_child(_spray)
+
+	# the fan of spray a lip hit throws off the tail, up and back over the wave
+	_lip_spray = CPUParticles3D.new()
+	_lip_spray.amount = 160
+	_lip_spray.lifetime = 1.1
+	_lip_spray.one_shot = true
+	_lip_spray.explosiveness = 0.8
+	_lip_spray.local_coords = false
+	_lip_spray.position = Vector3(0.0, 0.05, 0.8)
+	_lip_spray.direction = Vector3(0.0, 1.0, 0.7)
+	_lip_spray.spread = 40.0
+	_lip_spray.gravity = Vector3(0, -9.8, 0)
+	_lip_spray.scale_amount_min = 0.5
+	_lip_spray.scale_amount_max = 1.3
+	_lip_spray.mesh = drop
+	_lip_spray.emitting = false
+	_rig.add_child(_lip_spray)
+
+
+## Throw the lip hit's fan of spray. power ~0.5..1.5 sets how far it flies.
+func throw_spray(power: float) -> void:
+	_lip_spray.initial_velocity_min = 4.0 * power
+	_lip_spray.initial_velocity_max = 9.0 * power
+	_lip_spray.restart()
+	_lip_spray.emitting = true
