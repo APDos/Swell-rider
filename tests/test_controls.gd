@@ -30,6 +30,7 @@ func _run() -> void:
 	await _settling_thumb_is_neutral()
 	await _small_slide_is_a_small_adjustment()
 	await _pointing_up_never_turns_you_round()
+	await _nudges_near_level_are_precise()
 	await _pointing_down_is_not_a_pump()
 	await _pump_thumb_pumps()
 	await _pump_drives_then_rises()
@@ -721,6 +722,54 @@ func _small_slide_is_a_small_adjustment() -> void:
 		_fail("a quick flick should be the full turn (only reached %.0f°)" % rad_to_deg(fast[0]))
 	if slow[1] > 0.6 * fast[1]:
 		_fail("a small slow slide down should drop you down the face far less than a flick (%.2f vs %.2f)" % [slow[1], fast[1]])
+
+
+## Lining up on the wave after a turn: with the thumb out at the edge, slow
+## nudges near level angle the nose much less than the thumb (from recorded
+## rides: 15-20° nudges at 3-6 px a tick swung the board ±20° and the rider up
+## and down the face). A snap is 1:1 and stays so while held, until the thumb
+## turns slowly again. A quick move back toward the middle is re-centring, not
+## a full-strength flick.
+func _nudges_near_level_are_precise() -> void:
+	await _ride_setup(60.0)
+	var touch = main.touch
+	var at := func(deg: float, r := 70.0) -> Vector2:
+		return _stick_at + Vector2(cos(deg_to_rad(deg)), -sin(deg_to_rad(deg))) * r
+	var aim_deg := func() -> float: return rad_to_deg(touch.aim.angle())
+	_thumb_down()
+	for i in 12:   # settle
+		await physics_frame
+	for i in 20:   # slide slowly out to straight ahead (3.5 px a tick)
+		_drag(0, _stick_at + Vector2(3.5 * (i + 1), 0))
+		await physics_frame
+	for i in 10:   # and nudge slowly up to 18°
+		_drag(0, at.call(1.8 * (i + 1)))
+		await physics_frame
+	var nudged: float = aim_deg.call()
+	if nudged > 9.0 or nudged < 2.0:
+		_fail("a slow 18° nudge near level should angle the nose a little (aim %.0f°, want 2-9°)" % nudged)
+	_thumb_up()
+	await physics_frame
+	_thumb_down()
+	for i in 12:
+		await physics_frame
+	_drag(0, at.call(25.0))   # snap out to 25° in one tick
+	for i in 20:
+		await physics_frame
+	var snapped: float = aim_deg.call()
+	if absf(snapped - 25.0) > 2.0:
+		_fail("a snap should point the nose 1:1, and stay so while held (aim %.0f°, thumb 25°)" % snapped)
+	for i in 10:   # then turn slowly back to 5°
+		_drag(0, at.call(25.0 - 2.0 * (i + 1)))
+		await physics_frame
+	var settled: float = aim_deg.call()
+	if settled > 3.5:
+		_fail("after a snap, turning slowly should be precise again (aim %.0f°, thumb 5°)" % settled)
+	_drag(0, at.call(-60.0, 40.0))   # a quick move back toward the middle (70 px out to 40), ending a bit below it
+	await physics_frame
+	if touch.aim.length() > 0.65:
+		_fail("a quick move back toward the middle is re-centring, not a full-strength flick (push %.2f)" % touch.aim.length())
+	_thumb_up()
 
 
 ## Pointing up, a hair left of vertical, is a carve up the face, not a cutback.

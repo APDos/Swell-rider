@@ -9,7 +9,14 @@ extends CanvasLayer
 ##   How far you push is how much: a small slide is a small adjustment (the
 ##   board angles only part way toward your thumb), a long one is the full
 ##   turn. A quick move (a flick, FLICK_PX within FLICK_TICKS) is the full
-##   turn at once, however short, until the thumb comes back to the middle.
+##   turn at once, however short, until the thumb comes back to the middle
+##   (a quick move back toward the middle is re-centring, not a flick).
+##   Near level, slow is precise: pointing within PRECISE_TO of the way you're
+##   riding, the nose angles less than the thumb (down to FINE_GAIN of it), so
+##   small nudges line you up on the wave. Further round it's 1:1. A fast move
+##   (a snap) is 1:1 everywhere, and stays so while you hold it, until the
+##   thumb turns slowly again (through SNAP_FADE; a thumb settling after a
+##   sweep creeps a few px without turning, which doesn't count).
 ## - Left half: hold to pump (drive), lift your thumb to turn off the bottom.
 ## - After a wipeout, a tap paddles back out. Mid-ride, hold the ↻ corner.
 ## main.gd reads aim, pump, restart_down and consume_tap() each physics tick.
@@ -22,6 +29,12 @@ const FLICK_TICKS := 3      # ...within this many physics ticks (~0.05 s) to be 
 const FLICK_FULL := 0.45    # ...once it's this far out (of RADIUS). Nearer the middle it's a light push even in a flick, so the thumb crossing the middle still reads as crossing (surfer.SWEEP_PUSH)
 const SETTLE_TICKS := 7     # physics ticks (~0.12 s) after touch-down that the thumb is still settling...
 const SETTLE_PX := 45.0     # ...as long as it stays this close (px, viewport) to where it landed: the stick's centre follows it, so a still thumb steers nothing. Further, sooner, is a real flick, measured from where it landed.
+const FINE_GAIN := 0.35    # precise: the nose angles this fraction of the thumb's angle off level...
+const PRECISE_FROM := deg_to_rad(10.0)   # ...out to here, rising to 1:1...
+const PRECISE_TO := deg_to_rad(50.0)     # ...by here (carves past it are full)
+const FINE_SPEED := 4.0    # px per physics tick (viewport): slower is a nudge (recorded nudges run 3-6)...
+const SNAP_SPEED := 12.0   # ...faster is a snap, 1:1 (recorded snaps run 25-55)
+const SNAP_FADE := deg_to_rad(15.0)   # after a snap, slowly turning the thumb this far brings the precision back
 const RESTART_SIZE := Vector2(120, 100)   # the ↻ hold area, top-right corner
 
 var main   # main.gd, for its state
@@ -41,6 +54,9 @@ var _stick_down_tick := 0
 var _stick_settled := false       # past the settling moment: the centre stays put
 var _flick := false               # this push started with a quick move: full strength until the thumb is back in the middle
 var _stick_hist: Array[Vector2] = []   # the thumb's position at each of the last FLICK_TICKS physics ticks
+var _snap := 0.0                  # 1 after a fast move (1:1), back to 0 (precise near level) as the thumb moves slowly
+var _thumb_ang := 0.0             # the thumb's angle (radians, y up) and...
+var _amount := 0.0                # ...how hard it's pushing, before _precise
 var _pump_id := -1
 var _pump_pos := Vector2.ZERO
 var _restart_id := -1
@@ -140,7 +156,10 @@ func _input(event: InputEvent) -> void:
 					_stick_origin = _stick_down
 					_flick = true
 			if not _stick_hist.is_empty() and _stick_pos.distance_to(_stick_hist[0]) >= FLICK_PX:
-				_flick = true
+				# A quick move out or round is a flick. Back toward the middle
+				# is re-centring, measured by how far out it ends.
+				var inward := _stick_hist[0].distance_to(_stick_origin) - _stick_pos.distance_to(_stick_origin)
+				_flick = inward < FLICK_PX * 0.5
 			var off := _stick_pos - _stick_origin
 			# Past the edge, the stick's centre follows your thumb, so turning
 			# back the other way responds straight away.
@@ -162,11 +181,41 @@ func _set_stick(v: Vector2) -> void:
 	if len < DEADZONE:
 		aim = Vector2.ZERO
 		_flick = false   # back in the middle: the next push is measured afresh
+		_snap = 0.0
 	else:
 		var amount := clampf((len - DEADZONE) / (FULL - DEADZONE), 0.0, 1.0)
 		if _flick and len >= FLICK_FULL:
 			amount = 1.0
-		aim = Vector2(v.x, -v.y).normalized() * amount
+		var ang := atan2(-v.y, v.x)
+		var fast := smoothstep(FINE_SPEED, SNAP_SPEED, _thumb_speed())
+		if fast >= _snap:
+			_snap = fast
+		elif _thumb_speed() < FINE_SPEED:   # only a slow thumb, not a snap slowing down
+			_snap = maxf(_snap - absf(wrapf(ang - _thumb_ang, -PI, PI)) / SNAP_FADE, 0.0)
+		_thumb_ang = ang
+		_amount = amount
+		aim = Vector2.from_angle(_precise(_thumb_ang)) * amount
+
+
+## The thumb's angle (radians, y up) to the nose's: near the way you're riding,
+## and unless you've just snapped, the angle off level is scaled down.
+func _precise(ang: float) -> float:
+	var s = main.surfer if main != null else null
+	if s == null or s.state != s.RIDING:
+		return ang   # in the air the stick spins you: leave it alone
+	var ahead := 0.0 if s.facing > 0.0 else PI
+	var off := wrapf(ang - ahead, -PI, PI)
+	if absf(off) >= PRECISE_TO:
+		return ang
+	var gain := lerpf(FINE_GAIN, 1.0, smoothstep(PRECISE_FROM, PRECISE_TO, absf(off)))
+	return ahead + off * lerpf(gain, 1.0, _snap)
+
+
+## How fast the thumb is moving: px per physics tick over the last few ticks.
+func _thumb_speed() -> float:
+	if _stick_hist.is_empty():
+		return _stick_pos.distance_to(_stick_down)   # the first tick: from where it landed
+	return _stick_pos.distance_to(_stick_hist[0]) / _stick_hist.size()
 
 
 ## Remember where the thumb was each tick, to tell a flick from a slow slide.
@@ -176,6 +225,9 @@ func _physics_process(_dt: float) -> void:
 	_stick_hist.append(_stick_pos)
 	while _stick_hist.size() > FLICK_TICKS:
 		_stick_hist.pop_front()
+	if aim != Vector2.ZERO:
+		# A still thumb sends no drags: keep up with the surfer (turned round, landed).
+		aim = Vector2.from_angle(_precise(_thumb_ang)) * _amount
 
 
 func _on_draw() -> void:
