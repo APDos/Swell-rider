@@ -16,6 +16,7 @@ extends RefCounted
 var ride_seed := 0
 var aims: Array[Vector2] = []
 var pumps: Array[float] = []
+var fines: Array[bool] = []
 var expect: Array = []        # per tick: [x, t, v] as recorded
 var events: Array[String] = []
 var error := ""
@@ -56,6 +57,7 @@ func _parse(file_path: String) -> void:
 			break   # cut off mid-row: the app was still writing when the file was copied
 		aims.append(Vector2(float(cells[cols.aim_x]), float(cells[cols.aim_y])))
 		pumps.append(float(cells[cols.pump]))
+		fines.append(cols.has("fine") and cells[cols.fine] == "1")   # older recordings: never
 		expect.append([float(cells[cols.x]), float(cells[cols.t]), float(cells[cols.v])])
 	if aims.is_empty():
 		error = "no rows in %s" % file_path
@@ -81,6 +83,10 @@ func aim(surfer) -> Vector2:
 
 func pump(_surfer) -> float:
 	return pumps[tick - 1] if tick >= 1 and tick <= pumps.size() and not done else 0.0
+
+
+func fine(_surfer) -> bool:
+	return fines[tick - 1] if tick >= 1 and tick <= fines.size() and not done else false
 
 
 ## At the end: check the last recorded row, unless aim() already did.

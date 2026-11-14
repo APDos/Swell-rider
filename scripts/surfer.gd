@@ -54,6 +54,18 @@ const CUT_BAND := 0.6         # rad (35°): to start turning round, the thumb mu
 const CUT_PUSH := 0.5         # ...and pushed at least this far (a light push behind is a gentle carve, not a turnaround)
 const CUT_MEMORY := 0.4       # s after turning round (cutting) that carrying on the sweep needs neither: the turn is under way
 const BEHIND_TIE := 0.5       # rad (30°): a turn this close to half way round goes round the bottom, whichever way is shorter
+# Height hold: lining up on the wave. Recorded rides: every 5° the board points
+# up or down moves you 0.1 of the face a second, so a thumb a little off level
+# drifts you up or down, and positioning was constant correction. While the
+# thumb is fine (not just snapped) and asks for less than HOLD_ANG, it sets a
+# gentle climb or drop instead of an angle, and the board steers itself to
+# hold the height you've reached.
+const HOLD_ANG := deg_to_rad(30.0)   # aims (angle x push) under this hold height; at it, the same as a carve
+const HOLD_DEAD := deg_to_rad(8.0)   # aims under this are level: a thumb meaning "level" wanders 5-10°
+const HOLD_GAIN := 1.2        # rad of board angle per face height off the held height...
+const HOLD_FIX := deg_to_rad(12.0)   # ...at most
+const HOLD_LOW := 0.1         # t: the held height stays on the face
+const HOLD_HIGH := 0.85
 const FOAM_REACH := 1.5       # m ahead of the curl the whitewater pile already reaches: a rebound counts from here
 const FOAM_HOLD := 1.0        # m behind the curl the whitewater shoves you along at, rather than letting you plough deeper
 const FOAM_MAX := 2.0         # s in the whitewater before it buries you
@@ -147,6 +159,10 @@ var _board_ang := 0.0        # the board's heading, world angle, unwrapped
 var _was_steering := false
 var _since_cut := 10.0     # s since the board was last turning round (cutting)
 var _was_sweeping := false   # last tick the thumb was pushed out far enough for its angle to count as a sweep
+## Set by main each tick: the thumb is positioning (slow), not snapping. Scripted riders leave it false.
+var fine := false
+var holding := false          # holding height (fine, near level)
+var hold_t := 0.0             # the height being held
 var _light_time := 0.0       # s the thumb has been near the stick's centre
 var _stall_hold := false     # the thumb landed straight behind a level board: stall until it moves off
 var _spin_latched := false   # the thumb was sideways at takeoff: no spin until it's let go
@@ -216,6 +232,8 @@ func reset(start_x: float) -> void:
 	_was_steering = false
 	_was_sweeping = false
 	_since_cut = 10.0
+	holding = false
+	hold_t = t
 	_light_time = 0.0
 	_stall_hold = false
 	pump_phase = PUMP_IDLE
@@ -289,6 +307,7 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 	var board_world := phi if facing > 0.0 else PI - phi
 	_board_ang += wrapf(board_world - _board_ang, -PI, PI)
 	var sweeping := strength >= SWEEP_PUSH
+	var hold_now := false
 	if steering:
 		var raw := aim.angle()
 		var step_ang := wrapf(raw - _thumb_ang, -PI, PI)
@@ -341,6 +360,19 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 			# Coming out of a turn-around the nose keeps the cutback's pace.
 			var cap := CUTBACK_TURN if absf(phi) > MAX_PHI else TURN
 			var target := clampf(want, -MAX_PHI, MAX_PHI) * strength
+			if fine and absf(target) < HOLD_ANG and pump_phase == PUMP_IDLE and t >= 0.0 and absf(phi) <= MAX_PHI:
+				# Positioning: the aim is a climb or drop, none near level
+				# (HOLD_DEAD), gentle past it (squared), the same as the carve
+				# at HOLD_ANG; the board holds the height that reaches.
+				hold_now = true
+				var past := maxf(absf(target) - HOLD_DEAD, 0.0) / (HOLD_ANG - HOLD_DEAD)
+				var climb := signf(target) * HOLD_ANG * past * past
+				if not holding or absf(phi - climb) > HOLD_FIX:
+					# Still turning onto the line asked for (out of a dive, say):
+					# hold from wherever that gets you, not from where you were.
+					hold_t = t
+				hold_t = clampf(hold_t + v * sin(climb) / flen * dt, HOLD_LOW, HOLD_HIGH)
+				target = climb + clampf((hold_t - t) * HOLD_GAIN, -HOLD_FIX, HOLD_FIX)
 			target_rate = clampf((target - phi) * AIM_GAIN, -1.0, 1.0) * cap
 		else:
 			# Behind you, or a sweep that's gone further round: the nose follows
@@ -356,6 +388,7 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 	# vertical in a cutback, but the turn (and the lean into it) doesn't.
 	_steer = clampf(facing * target_rate / TURN, -1.0, 1.0)
 	_was_steering = steering
+	holding = hold_now
 	_since_cut = 0.0 if cutting else _since_cut + dt
 	_was_sweeping = steering and sweeping
 	# Turns build up and ease off rather than switching on and off instantly.

@@ -11,7 +11,7 @@ extends Node
 ## The aim and pump columns are written exactly (scientific notation, round-trips
 ## the float), so a replay feeds the surfer the same input bit for bit.
 
-const FORMAT := 1
+const FORMAT := 2
 const KEEP := 60
 
 var main
@@ -27,10 +27,13 @@ const COLUMNS := [
 	"stick_x", "stick_y", "origin_x", "origin_y",
 	# what the game read from it: aim (x down the line, y up the face, length = push) and the pump
 	"aim_x", "aim_y", "pump", "pump_x", "pump_y",
+	# 1 while the thumb is positioning (slow), 0 just after a snap
+	"fine",
 	# the surfer after this tick
 	"state", "x", "t", "v", "phi", "heading", "facing", "cutting", "stall", "tail_dig",
 	"pump_phase", "pump_pitch", "turn_rate", "thumb_ang", "board_ang",
 	"curl_d", "air_h", "spin", "in_barrel", "score",
+	"holding", "hold_t",   # holding height (positioning) and the height held
 ]
 
 
@@ -79,6 +82,7 @@ func tick(aim: Vector2, pump: float) -> void:
 		_px(tc._stick_origin.x, stick_on), _px(tc._stick_origin.y, stick_on),
 		String.num_scientific(aim.x), String.num_scientific(aim.y), String.num_scientific(pump),
 		_px(tc._pump_pos.x, pump_on), _px(tc._pump_pos.y, pump_on),
+		"%d" % int(s.fine),
 		["riding", "air", "wipeout"][s.state] if s.state < 3 else str(s.state),
 		"%.3f" % s.x, "%.4f" % s.t, "%.3f" % s.v, "%.4f" % s.phi, "%.4f" % s.heading(),
 		"%d" % int(s.facing), "%d" % int(s.cutting), "%d" % int(s._stall_hold), "%.3f" % s.tail_dig,
@@ -86,6 +90,7 @@ func tick(aim: Vector2, pump: float) -> void:
 		"%.4f" % s._thumb_ang, "%.4f" % s._board_ang,
 		"%.3f" % (s.x - main.wave.curl_x), "%.3f" % s.air_h, "%.3f" % s.spin,
 		"%d" % int(s.in_barrel), "%.1f" % main.score,
+		"%d" % int(s.holding), "%.4f" % s.hold_t,
 	])
 	_file.store_line(",".join(row))
 

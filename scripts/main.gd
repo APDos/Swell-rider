@@ -230,15 +230,20 @@ func _physics_process(dt: float) -> void:
 
 	var aim := Vector2.ZERO
 	var pump := 0.0
+	var fine := false   # positioning (a slow thumb): see surfer.HOLD_ANG
 	if barrel_test:
 		aim = _barrel_test_aim()
 	elif rider != null:
 		aim = rider.aim(surfer)
 		if rider.has_method("pump"):
 			pump = rider.pump(surfer)
+		if rider.has_method("fine"):
+			fine = rider.fine(surfer)
 	else:
 		aim = touch.aim
 		pump = touch.pump
+		fine = touch.fine
+	surfer.fine = fine
 
 	_prev_curl = wave.curl_x
 	if barrel_test and state == PLAYING:

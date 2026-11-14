@@ -30,7 +30,7 @@ func _run() -> void:
 	await _settling_thumb_is_neutral()
 	await _small_slide_is_a_small_adjustment()
 	await _pointing_up_never_turns_you_round()
-	await _nudges_near_level_are_precise()
+	await _height_hold_lines_you_up()
 	await _pointing_down_is_not_a_pump()
 	await _pump_thumb_pumps()
 	await _pump_drives_then_rises()
@@ -724,47 +724,59 @@ func _small_slide_is_a_small_adjustment() -> void:
 		_fail("a small slow slide down should drop you down the face far less than a flick (%.2f vs %.2f)" % [slow[1], fast[1]])
 
 
-## Lining up on the wave after a turn: with the thumb out at the edge, slow
-## nudges near level angle the nose much less than the thumb (from recorded
-## rides: 15-20° nudges at 3-6 px a tick swung the board ±20° and the rider up
-## and down the face). A snap is 1:1 and stays so while held, until the thumb
-## turns slowly again. A quick move back toward the middle is re-centring, not
-## a full-strength flick.
-func _nudges_near_level_are_precise() -> void:
+## Lining up on the wave (height hold). From recorded rides: every 5° the
+## board points up or down moves you 0.1 of the face a second, so a thumb a
+## little off level drifted the rider up and down. Now a slow thumb near level
+## holds your height: slightly off level stays put, a nudge up moves you up a
+## bit and holds there. A snap is still a carve at the thumb's angle. A quick
+## move back toward the middle is re-centring, not a full-strength flick.
+func _height_hold_lines_you_up() -> void:
 	await _ride_setup(60.0)
+	var s = main.surfer
 	var touch = main.touch
 	var at := func(deg: float, r := 70.0) -> Vector2:
 		return _stick_at + Vector2(cos(deg_to_rad(deg)), -sin(deg_to_rad(deg))) * r
-	var aim_deg := func() -> float: return rad_to_deg(touch.aim.angle())
 	_thumb_down()
 	for i in 12:   # settle
 		await physics_frame
-	for i in 20:   # slide slowly out to straight ahead (3.5 px a tick)
-		_drag(0, _stick_at + Vector2(3.5 * (i + 1), 0))
+	for i in 20:   # slide slowly out, 7° above level (3.5 px a tick)
+		_drag(0, _stick_at + Vector2.from_angle(deg_to_rad(-7.0)) * 3.5 * (i + 1))
 		await physics_frame
-	for i in 10:   # and nudge slowly up to 18°
-		_drag(0, at.call(1.8 * (i + 1)))
+	var t0: float = s.t
+	for i in 90:
 		await physics_frame
-	var nudged: float = aim_deg.call()
-	if nudged > 9.0 or nudged < 2.0:
-		_fail("a slow 18° nudge near level should angle the nose a little (aim %.0f°, want 2-9°)" % nudged)
+	if not s.holding:
+		_fail("a slow thumb near level should hold height")
+	if absf(s.t - t0) > 0.04:
+		_fail("a thumb 7° off level should hold your height, not drift (moved %.2f of the face in 1.5 s)" % (s.t - t0))
+	var t1: float = s.t
+	for i in 10:   # nudge slowly up to 22°, hold a moment, then slowly back to 7°
+		_drag(0, at.call(7.0 + 1.5 * (i + 1)))
+		await physics_frame
+	for i in 40:
+		await physics_frame
+	for i in 10:
+		_drag(0, at.call(22.0 - 1.5 * (i + 1)))
+		await physics_frame
+	for i in 20:
+		await physics_frame
+	var t2: float = s.t
+	for i in 60:
+		await physics_frame
+	if t2 - t1 < 0.03:
+		_fail("a slow nudge up should move you up the face a bit (moved %.2f)" % (t2 - t1))
+	if absf(s.t - t2) > 0.03:
+		_fail("after a nudge, back near level should hold the new height (moved %.2f in 1 s)" % (s.t - t2))
 	_thumb_up()
 	await physics_frame
 	_thumb_down()
 	for i in 12:
 		await physics_frame
 	_drag(0, at.call(25.0))   # snap out to 25° in one tick
-	for i in 20:
+	for i in 30:
 		await physics_frame
-	var snapped: float = aim_deg.call()
-	if absf(snapped - 25.0) > 2.0:
-		_fail("a snap should point the nose 1:1, and stay so while held (aim %.0f°, thumb 25°)" % snapped)
-	for i in 10:   # then turn slowly back to 5°
-		_drag(0, at.call(25.0 - 2.0 * (i + 1)))
-		await physics_frame
-	var settled: float = aim_deg.call()
-	if settled > 3.5:
-		_fail("after a snap, turning slowly should be precise again (aim %.0f°, thumb 5°)" % settled)
+	if s.holding or rad_to_deg(s.phi) < 18.0:
+		_fail("a snap to 25° should carve the board up toward 25° (phi %.0f°, holding %s)" % [rad_to_deg(s.phi), s.holding])
 	_drag(0, at.call(-60.0, 40.0))   # a quick move back toward the middle (70 px out to 40), ending a bit below it
 	await physics_frame
 	if touch.aim.length() > 0.65:
