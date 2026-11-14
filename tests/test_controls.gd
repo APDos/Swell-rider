@@ -37,6 +37,7 @@ func _run() -> void:
 	await _pointing_down_rides_out_front()
 	await _straight_back_is_a_stall()
 	await _reverse_c_cuts_back()
+	await _full_sweep_loops_round_the_bottom()
 	await _rebound_off_whitewater()
 	if _failures == 0:
 		print("PASS test_controls")
@@ -129,6 +130,7 @@ const RIGHT := Vector2(1, 0)    # down the line
 const UP_LEFT := Vector2(-1, -1)
 const UP_RIGHT := Vector2(1, -1)
 const DOWN_LEFT := Vector2(-1, 1)
+const DOWN_RIGHT := Vector2(1, 1)
 
 
 # ---- tests -----------------------------------------------------------------
@@ -447,6 +449,46 @@ func _reverse_c_cuts_back() -> void:
 		_fail("an open-water cutback shouldn't end the ride: %s" % why[0])
 
 
+## The whole cutback as one quick thumb sweep, the way it's drawn on a phone:
+## a reverse C (up, up-back, back, down-back) then on round the bottom (down,
+## down-ahead, ahead), at a normal thumb speed (about 0.1 s per step). The
+## board follows the sweep the same way round: up and over to face the curl,
+## then down the face and round the bottom back down the line, not back up over
+## the lip. Scores a Cutback.
+func _full_sweep_loops_round_the_bottom() -> void:
+	await _ride_setup(60.0)
+	var s = main.surfer
+	s.t = 0.4
+	var tricks := []
+	var on_trick := func(n, _p): tricks.append(n)
+	s.trick_landed.connect(on_trick)
+	var faced_back := false
+	var t_turned_back := -1.0
+	var t_max_after := 0.0
+	_thumb_down()
+	for dir in [UP, UP_LEFT, LEFT, DOWN_LEFT, DOWN, DOWN_RIGHT, RIGHT]:
+		_point(dir)
+		for i in 6:
+			await physics_frame
+			faced_back = faced_back or s.facing < 0.0
+	for i in 60:
+		await physics_frame
+		if faced_back and s.facing > 0.0 and t_turned_back < 0.0:
+			t_turned_back = s.t
+		if t_turned_back >= 0.0:
+			t_max_after = maxf(t_max_after, s.t)
+	_thumb_up()
+	s.trick_landed.disconnect(on_trick)
+	if not faced_back:
+		_fail("a quick reverse-C sweep should turn the board to face the curl")
+	elif t_turned_back < 0.0:
+		_fail("carrying the sweep on round the bottom should bring you back down the line (facing %d)" % int(s.facing))
+	elif t_turned_back > 0.6:
+		_fail("the return should come round the bottom of the face, not back over the top (turned back at t=%.2f)" % t_turned_back)
+	if not "Cutback" in tricks:
+		_fail("the full sweep should score a Cutback (tricks %s)" % [tricks])
+
+
 ## Cut back low (sweep down and back), aim at the whitewater, and sweep the
 ## turn off it yourself: the foam stops you, then throws you out ahead of the
 ## curl once you've come around (a Roundhouse Cutback). Ride into it and don't
@@ -467,7 +509,8 @@ func _rebound_off_whitewater() -> void:
 	for dir in [UP]:
 		await _hold_point(dir, 8)
 	await _point_until(UP_RIGHT, func(): return s.facing > 0.0, 90)
-	await _hold_point(RIGHT, 60)              # level out and get going
+	await _hold_point(DOWN_RIGHT, 15)         # come off the foam: drop down and out of it
+	await _hold_point(RIGHT, 45)              # level out and get going
 	_thumb_up()
 	s.trick_landed.disconnect(on_trick)
 	s.wiped_out.disconnect(on_wipe)

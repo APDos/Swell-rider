@@ -46,8 +46,9 @@ const CARVE_DRAG := 0.03      # rail drag while turning around: decel = this * t
 const CUTBACK_LIFT := 0.3     # near vertical in a turn-around, how much of the motion goes up/down the face: the board is laid over on its rail, so the arc is wide along the line and shallow on the face
 const AIM_GAIN := 4.0         # per rad off target: how eagerly the nose swings to where you point
 const AIM_DEAD := 0.1         # thumb push below this is no steering
-const STALL_CONE := 0.52      # rad (30°): pointing this close to straight behind you is the stall...
+const STALL_CONE := 0.35      # rad (20°): pointing this close to straight behind you is the stall...
 const STALL_PHI := 0.5        # ...as long as the nose isn't already swinging round (|phi| under this)
+const FOAM_REACH := 1.5       # m ahead of the curl the whitewater pile already reaches: a rebound counts from here
 const FOAM_HOLD := 1.0        # m behind the curl the whitewater shoves you along at, rather than letting you plough deeper
 const FOAM_MAX := 2.0         # s in the whitewater before it buries you
 const FOAM_DRAG := 1.5        # 1/s: pushing back into the whitewater stops you (decel = this * v)
@@ -128,11 +129,16 @@ var _wipe_spin := Vector3.ZERO
 var facing := 1.0         # +1 riding down the line (right), -1 turned back toward the curl
 var cutting := false      # pointing behind the board: driving the nose round past vertical
 var _aim := Vector2.ZERO
+var _thumb_ang := 0.0        # where the thumb points, world angle, unwrapped: a sweep round keeps adding up
+var _board_ang := 0.0        # the board's heading, world angle, unwrapped
+var _was_steering := false
+var _stall_hold := false     # the thumb landed straight behind a level board: stall until it moves off
 var _spin_latched := false   # the thumb was sideways at takeoff: no spin until it's let go
 var _cut_back := false    # turned to face the curl since you last rode down the line
 var _rebounded := false   # this cutback bounced off the whitewater
 var _rebound_time := -10.0
 var _foam_time := 0.0
+var _was_near_foam := false
 var turn_rate := 0.0      # rad/s, eases toward steer * TURN
 var _steer := 0.0
 var _wipe_rot := Vector3.ZERO
@@ -182,6 +188,9 @@ func reset(start_x: float) -> void:
 	_rebounded = false
 	_rebound_time = -10.0
 	_foam_time = 0.0
+	_was_near_foam = false
+	_was_steering = false
+	_stall_hold = false
 	pump_phase = PUMP_IDLE
 	pushing = false
 	stroke = 1.0
@@ -236,8 +245,10 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 	var slope: float = wave.slope_at(x, t)
 	var flen: float = wave.face_length(x)
 	var in_foam := d < 0.0
-	if in_foam and facing < 0.0 and _foam_time == 0.0:
-		_rebound_time = _clock   # hit the whitewater facing back: you've got a moment to turn off it
+	var near_foam := d < FOAM_REACH
+	if near_foam and facing < 0.0 and not _was_near_foam:
+		_rebound_time = _clock   # reached the whitewater facing back: you've got a moment to turn off it
+	_was_near_foam = near_foam
 
 	# Point the nose. want is the thumb's direction measured from the way the
 	# board faces: 0 = ahead, + up the face, ±PI = straight behind you.
@@ -246,25 +257,50 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 	var stall := 0.0
 	var target_rate := 0.0
 	cutting = false
+	# World angles (x down the line, y up the face), unwrapped so a sweep of
+	# the thumb round the stick keeps counting past a half turn.
+	var board_world := phi if facing > 0.0 else PI - phi
+	_board_ang += wrapf(board_world - _board_ang, -PI, PI)
 	if steering:
+		var raw := aim.angle()
+		var step_ang := wrapf(raw - _thumb_ang, -PI, PI)
+		if not _was_steering or absf(step_ang) > PI / 2.0:
+			# A fresh touch (or a jump across the middle of the stick): measure
+			# from the board the short way. Straight behind a level board is
+			# the stall: sit back on the tail.
+			var rel := wrapf(raw - _board_ang, -PI, PI)
+			_thumb_ang = _board_ang + rel
+			_stall_hold = absf(rel) > PI - STALL_CONE and absf(phi) < STALL_PHI
+		else:
+			_thumb_ang += step_ang
+			if _stall_hold:
+				var rel := wrapf(raw - _board_ang, -PI, PI)
+				if absf(rel) <= PI - STALL_CONE:
+					_stall_hold = false   # moved off straight back: turn the way it went
+					_thumb_ang = _board_ang + rel
 		var want := atan2(aim.y, aim.x * facing)
-		if absf(want) <= PI / 2.0:
+		var diff := _thumb_ang - _board_ang
+		if _stall_hold:
+			stall = strength
+		elif absf(want) <= PI / 2.0 and absf(diff) <= PI / 2.0:
 			# Ahead of you: carve round to it, capped short of vertical. Coming
 			# out of a turn-around the nose keeps the cutback's pace.
 			var cap := CUTBACK_TURN if absf(phi) > MAX_PHI else TURN
 			target_rate = clampf((clampf(want, -MAX_PHI, MAX_PHI) - phi) * AIM_GAIN, -1.0, 1.0) * cap * strength
-		elif absf(want) > PI - STALL_CONE and absf(phi) < STALL_PHI:
-			stall = strength   # straight behind you with the board running level: sit back on the tail
 		else:
-			# Behind you: drive the nose round past vertical toward it. Up-back
-			# swings up and over, down-back low; straight back keeps a turn going.
-			var dir := signf(want) if absf(want) <= PI - STALL_CONE else (signf(phi) if phi != 0.0 else 1.0)
+			# Behind you, or a sweep that's gone further round: the nose follows
+			# the thumb's sweep, the same way round, past vertical. A reverse C
+			# turns you up and over to face the curl; keep sweeping (down, then
+			# toward the original direction) and it carries on round the bottom
+			# and back down the line.
 			cutting = true
-			target_rate = dir * CUTBACK_TURN * strength
+			var world_rate := clampf(diff * AIM_GAIN, -1.0, 1.0) * CUTBACK_TURN * strength
+			target_rate = facing * world_rate   # phi is measured from facing
 	# For drawing (lean, spray), in world terms: the way the board is actually
 	# turning. phi is measured from facing, so its sign flips when you pass
 	# vertical in a cutback, but the turn (and the lean into it) doesn't.
 	_steer = clampf(facing * target_rate / TURN, -1.0, 1.0)
+	_was_steering = steering
 	# Turns build up and ease off rather than switching on and off instantly.
 	turn_rate = lerpf(turn_rate, target_rate, 1.0 - exp(-TURN_RESPONSE * dt))
 	var was_carving := absf(phi) <= MAX_PHI
@@ -277,7 +313,7 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 		facing = -facing
 		phi = signf(phi) * (PI - absf(phi))
 		turn_rate = -turn_rate
-		if facing > 0.0 and in_foam and _clock - _rebound_time < REBOUND_GRACE:
+		if facing > 0.0 and near_foam and _clock - _rebound_time < REBOUND_GRACE:
 			_rebounded = true
 	var turning_around := cutting or absf(phi) > MAX_PHI
 	if not steering:
