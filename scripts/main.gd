@@ -10,6 +10,8 @@ const SurferScript := preload("res://scripts/surfer.gd")
 const HudScript := preload("res://scripts/hud.gd")
 const TouchScript := preload("res://scripts/touch.gd")
 const Autopilot := preload("res://scripts/autopilot.gd")
+const RecorderScript := preload("res://scripts/recorder.gd")
+const Replay := preload("res://scripts/replay.gd")
 
 enum { PLAYING, WIPEOUT }
 
@@ -46,6 +48,9 @@ var _shots_taken := 0
 var _prev_curl := 0.0       # curl x at the previous tick, for smooth drawing
 var touch   # touch.gd: the thumbs
 var _restart_held := 0.0
+var recorder   # recorder.gd: writes each ride to a file (phone debug builds, or --record)
+var _rng := RandomNumberGenerator.new()   # the ride's wave (height, closeouts), seeded per ride so a replay gets the same one
+var _replay_check := false  # --replay headless: print how the replay compares, then quit
 
 
 func _ready() -> void:
@@ -58,6 +63,11 @@ func _ready() -> void:
 	for a in args:
 		if a.begins_with("--shot="):
 			shot_path = a.substr(7)
+		elif a.begins_with("--replay="):
+			rider = Replay.load_file(a.substr(9))
+			if rider.error != "":
+				push_error("replay: " + rider.error)
+			_replay_check = DisplayServer.get_name() == "headless"
 
 	_build_environment()
 
@@ -80,7 +90,9 @@ func _ready() -> void:
 	add_child(surfer)
 	surfer.trick_landed.connect(_on_trick)
 	surfer.wiped_out.connect(_on_wipeout)
-	surfer.pumped.connect(func(q: float, gain: float): hud.pump_feedback(q, gain))
+	surfer.pumped.connect(func(q: float, gain: float):
+		hud.pump_feedback(q, gain)
+		recorder.event("pump", "quality %.2f gain %.2f" % [q, gain]))
 
 	curl_spray = _make_curl_spray()
 	add_child(curl_spray)
@@ -95,6 +107,10 @@ func _ready() -> void:
 	touch = TouchScript.new()
 	touch.main = self
 	add_child(touch)
+	recorder = RecorderScript.new()
+	recorder.main = self
+	recorder.enabled = OS.is_debug_build() and (OS.has_feature("mobile") or "--record" in args)
+	add_child(recorder)
 
 	_reset()
 
@@ -164,7 +180,11 @@ func _reset() -> void:
 	barrel_time = 0.0
 	barrel_points = 0.0
 	barrel_max_depth = 0.0
-	wave.base_height = randf_range(4.2, 5.4)
+	var ride_seed := randi()
+	if rider != null and "ride_seed" in rider:
+		ride_seed = rider.ride_seed
+	_rng.seed = ride_seed
+	wave.base_height = _rng.randf_range(4.2, 5.4)
 	wave.curl_x = 0.0
 	_schedule_closeout()
 	surfer.reset(13.0)
@@ -175,11 +195,15 @@ func _reset() -> void:
 	hud.hide_message()
 	hud.set_barrel(false, 0.0, 0.0)
 	_snap_camera()
+	# Only a player's rides are recorded, not scripted riders.
+	recorder.finish()
+	if rider == null and not barrel_test:
+		recorder.begin(ride_seed)
 
 
 func _schedule_closeout() -> void:
-	var x0: float = wave.curl_x + randf_range(150.0, 280.0)
-	wave.closeout = Vector3(x0, x0 + randf_range(12.0, 24.0), 0.95)
+	var x0: float = wave.curl_x + _rng.randf_range(150.0, 280.0)
+	wave.closeout = Vector3(x0, x0 + _rng.randf_range(12.0, 24.0), 0.95)
 
 
 func use_autopilot() -> void:
@@ -204,6 +228,7 @@ func _physics_process(dt: float) -> void:
 		touch.consume_tap()
 		_restart_held += dt
 		if _restart_held >= RESTART_HOLD:
+			recorder.event("restart")
 			_reset()
 			return
 	else:
@@ -227,7 +252,15 @@ func _physics_process(dt: float) -> void:
 		wave.curl_x = surfer.x - 3.0
 	else:
 		_update_curl(dt)
+	var was_playing := state == PLAYING
 	surfer.step(dt, aim, pump)
+	if was_playing:
+		recorder.tick(aim, pump)
+		if state == WIPEOUT:
+			recorder.finish()
+	if _replay_check and (rider.done or state == WIPEOUT) and rider.tick >= rider.aims.size():
+		_finish_replay_check()
+		return
 
 	if state == PLAYING:
 		ride_time += dt
@@ -314,12 +347,14 @@ func _on_trick(trick_name: String, points: int) -> void:
 	var d: float = surfer.x - wave.curl_x
 	var mult := 1.0 + 2.0 * exp(-maxf(d, 0.0) / 10.0)
 	var total := int(points * mult)
+	recorder.event("trick", "\"%s\" %d" % [trick_name, total])
 	score += total
 	hud.popup("%s  +%d" % [trick_name, total])
 
 
 func _on_wipeout(reason: String) -> void:
 	state = WIPEOUT
+	recorder.event("wipeout", "\"%s\" score %d ride %.2fs" % [reason, int(score), ride_time])
 	best = maxf(best, score)
 	hud.set_barrel(false, 0.0, 0.0)
 	hud.show_message("WIPEOUT\n%s\n\nScore %d   ·   Best %d   ·   %.0fs ride\n\nTap to paddle back out" % [reason, int(score), int(best), ride_time])
@@ -337,3 +372,13 @@ func _maybe_screenshot() -> void:
 		_shots_taken += 1
 		if _shots_taken == times.size():
 			get_tree().quit()
+
+
+## --replay headless: say whether the ride came out the same, then quit.
+func _finish_replay_check() -> void:
+	rider.finish_check(surfer)
+	if rider.diverged_at < 0:
+		print("REPLAY MATCHES (%d ticks, %.1f s)" % [rider.tick, rider.tick / 60.0])
+	else:
+		print("REPLAY DIVERGES at " + rider.diverged_detail)
+	get_tree().quit(0)

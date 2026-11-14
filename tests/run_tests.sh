@@ -38,6 +38,7 @@ run wave_model      "$GODOT" --headless --path . -s res://tests/test_wave_model.
 run smoke           "$GODOT" --headless --fixed-fps 60 --path . -s res://tests/test_smoke.gd
 run controls        "$GODOT" --headless --fixed-fps 60 --path . -s res://tests/test_controls.gd
 run pump            "$GODOT" --headless --fixed-fps 60 --path . -s res://tests/test_pump.gd
+run replay          "$GODOT" --headless --fixed-fps 60 --path . -s res://tests/test_replay.gd
 # The same 5 s ride must end in exactly the same state at any frame rate.
 fr_ref=""
 for fps in 30 60 144; do

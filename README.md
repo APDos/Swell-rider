@@ -19,6 +19,13 @@ xcrun devicectl device install app --device <device id> build/ios/SwellRider.ipa
 ```
 `export_presets.cfg` has the signing team and bundle id. The icon is drawn by `tools/make_icon.gd`. Running from the Godot editor on a Mac works with the mouse as a single touch (no pumping while steering).
 
+## Ride recordings
+Debug builds on the phone record every ride: one CSV per ride with both thumbs (screen position, the stick's centre, the aim and pump the game read) and the surfer (state, x, t, speed, heading, facing, cutting, stall, pump phase, distance to the curl, ...) for every physics tick, plus `# event` lines for pumps, tricks, wipeouts and restarts. The newest 60 are kept. Copy them to `rides/` (git-ignored) with the phone plugged in:
+```
+tools/pull_rides.sh
+```
+Replay one through the game to watch it (`godot --path . -- --replay=rides/ride_....csv`), or headless to check it still plays out the same after a physics change: `godot --headless --fixed-fps 60 --path . -- --replay=rides/ride_....csv` prints `REPLAY MATCHES` or the first tick where it went differently. Each ride's wave comes from a seed in the file, so the replay gets the same wave. On the Mac, `-- --record` records too.
+
 ## How it plays
 - The break peels down the line at about 9 m/s. If the curl catches you, you wipe out.
 - **Pumping is how you keep up.** The wave alone won't carry you: without pumping, the curl catches you within about 20 seconds. One pump is a small down-and-up S-turn high on the face, the way surfers pump down the line:
@@ -48,6 +55,7 @@ xcrun devicectl device install app --device <device id> build/ios/SwellRider.ipa
 - `scripts/touch.gd`: the thumb controls (aim, pump, taps), read by main.gd each tick.
 - `scripts/autopilot.gd`: a scripted rider that pumps in rhythm. Used by `--autopilot` and by the tests.
 - `scripts/hud.gd`: on-screen UI.
+- `scripts/recorder.gd` / `scripts/replay.gd`: ride recordings and playing them back.
 
 ## Tests
 Run `tests/run_tests.sh` (needs `godot` 4.3+ on PATH, plus `xvfb-run` on a machine without a display). CI runs it on every push.

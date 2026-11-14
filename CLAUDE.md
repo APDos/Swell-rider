@@ -46,6 +46,7 @@ Design goals: easy to pick up, hard to master, and it should feel right to real 
 - `test_controls`: real touch events through touch.gd (plus scripted riders for exact pump timing). Pointing up through an air doesn't spin you, the restart corner needs a hold, a tap after a wipeout paddles out, pointing down never pumps, the right thumb pumps, hold-then-release drives then rises (a tap is only a flick), a long hold settles on a lower line without snapping back, no input holds height, pointing down rides out in front and off the wave, straight back from a level board stalls, a reverse-C sweep cuts back with no stall on the way and a forward sweep brings you back (Cutback), one quick full sweep (reverse C on round the bottom) loops back down the line low on the face, facing the barrel, pointing back down the line is the stall, sweeping off the whitewater rebounds you while not turning buries you, pointing straight into the whitewater wipes you out at once, and carving up high then snapping down scores a lip hit (levelling off doesn't).
 - `test_framerate`: the same 5 s ride ends in exactly the same state at 30, 60 and 144 fps.
 - `test_pump`: scripted riders on the real game loop check the pump and stall balance (see above).
+- `test_replay`: a ride played with real touch events is recorded, and replaying the file gives exactly the same ride.
 - The `mesh_get_surface_count` errors in headless runs come from Godot's dummy renderer and are harmless.
 
 ## Phone (the target platform)
@@ -53,6 +54,12 @@ Design goals: easy to pick up, hard to master, and it should feel right to real 
 - `scripts/touch.gd` is the only input: a floating stick on the left half (point the nose), pump on the right half, tap to paddle out, hold ↻ top-right to restart. On the Mac the mouse acts as one touch (`emulate_touch_from_mouse`). The HUD keeps clear of the notch via `touch.safe_insets()`.
 - Export: `export_presets.cfg` (preset "iOS", development signing). Needs Godot's 4.7.2 iOS template and Xcode 26 (the template links iOS 26 APIs). `build/` holds the Xcode project and .ipa; it has a `.gdignore` and is git-ignored.
 - `test_controls` drives touch.gd with real touch events; touch positions are in window pixels, so tests convert view positions with the viewport's final transform.
+
+## Ride recordings (playtest data from the phone)
+- `scripts/recorder.gd` writes `user://rides/ride_<date>_<time>.csv` for every player ride in debug builds on the phone (or with `-- --record`): per tick, the thumbs and the surfer; `# event <tick> ...` lines for pumps, tricks, wipeouts, restarts. Scripted riders are never recorded.
+- `tools/pull_rides.sh` copies them off the phone into `rides/` (git-ignored). When the user says a ride felt wrong, pull and read the recording: what the thumb did (`stick_*`, `aim_*`, `pump`) against what the board did.
+- `scripts/replay.gd` feeds a recording back as a rider. Headless (`godot --headless --fixed-fps 60 --path . -- --replay=FILE`) it prints `REPLAY MATCHES` or the first diverging tick: phone recordings replay exactly on the Mac. After a physics change, divergence is expected; it marks where that ride now goes differently.
+- Replays depend on the ride's wave coming only from its seed (`main._rng`: wave height and closeouts). Any new gameplay randomness must use `_rng`, never the global `randf`, and aim/pump must stay written exactly (`String.num_scientific`). If you add a recorded column, add it to `COLUMNS` and the row together.
 
 ## Coordinates
 - +X is down the line (the surfer rides right), +Y is up, +Z is toward shore (where the camera sits).
