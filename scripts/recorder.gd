@@ -11,7 +11,7 @@ extends Node
 ## The aim and pump columns are written exactly (scientific notation, round-trips
 ## the float), so a replay feeds the surfer the same input bit for bit.
 
-const FORMAT := 3
+const FORMAT := 4
 const KEEP := 60
 
 var main
@@ -27,10 +27,9 @@ const COLUMNS := [
 	"stick_x", "stick_y", "origin_x", "origin_y",
 	# what the game read from it: aim (x down the line, y up the face, length = push) and the pump
 	"aim_x", "aim_y", "pump", "pump_x", "pump_y",
-	# 1 while the thumb is positioning (slow), 0 just after a snap
-	"fine",
-	# face steering: the height the thumb asks for (-1: none), and the one being steered to
-	"face_t", "face_goal",
+	# how quick the thumb has just been (0..1; under 0.5 is positioning), and long
+	# range: its travel up or down from touch-down (-1..1) and whether it's down
+	"snap", "lift", "lift_on",
 	# the surfer after this tick
 	"state", "x", "t", "v", "phi", "heading", "facing", "cutting", "stall", "tail_dig",
 	"pump_phase", "pump_pitch", "turn_rate", "thumb_ang", "board_ang",
@@ -85,8 +84,7 @@ func tick(aim: Vector2, pump: float) -> void:
 		_px(tc._stick_origin.x, stick_on), _px(tc._stick_origin.y, stick_on),
 		String.num_scientific(aim.x), String.num_scientific(aim.y), String.num_scientific(pump),
 		_px(tc._pump_pos.x, pump_on), _px(tc._pump_pos.y, pump_on),
-		"%d" % int(s.fine),
-		String.num_scientific(s.face_t), "%.4f" % s.face_goal,
+		String.num_scientific(s.snap), String.num_scientific(s.lift), "%d" % int(s.lift_on),
 		["riding", "air", "wipeout"][s.state] if s.state < 3 else str(s.state),
 		"%.3f" % s.x, "%.4f" % s.t, "%.3f" % s.v, "%.4f" % s.phi, "%.4f" % s.heading(),
 		"%d" % int(s.facing), "%d" % int(s.cutting), "%d" % int(s._stall_hold), "%.3f" % s.tail_dig,

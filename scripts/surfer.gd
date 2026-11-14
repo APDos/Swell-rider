@@ -53,7 +53,7 @@ const STALL_PHI := 0.5        # ...as long as the nose isn't already swinging ro
 const CUT_BAND := 0.6         # rad (35°): to start turning round, the thumb must be this far past straight up (or down), clearly behind you: near vertical is a steep carve
 const CUT_PUSH := 0.5         # ...and pushed at least this far (a light push behind is a gentle carve, not a turnaround)
 const CUT_MEMORY := 0.4       # s after turning round (cutting) that carrying on the sweep needs neither: the turn is under way
-const BEHIND_TIE := 0.5       # rad (30°): a turn this close to half way round goes round the bottom, whichever way is shorter
+const BEHIND_TIE := 0.8       # rad (45°): a turn this close to half way round goes round the bottom, whichever way is shorter (a thumb crossing the stick to point back down the line ends 25-40° above level)
 # Height hold: lining up on the wave. Recorded rides: every 5° the board points
 # up or down moves you 0.1 of the face a second, so a thumb a little off level
 # drifts you up or down, and positioning was constant correction. While the
@@ -66,13 +66,15 @@ const HOLD_GAIN := 1.2        # rad of board angle per face height off the held 
 const HOLD_FIX := deg_to_rad(12.0)   # ...at most
 const HOLD_LOW := 0.1         # t: the held height stays on the face
 const HOLD_HIGH := 0.85
-# Face steering (settings FACE / SLIDER): the thumb picks a height on the wave
-# (face_t) and the board steers there itself: pointing up or down the face in
-# proportion to how far it has to go. Far away (a quick thumb), it's steep and
-# snappy; close, gentle, levelling off as it arrives. Lifting the thumb holds
-# the height you're at.
-const FACE_GAIN := 4.0        # rad of board angle per face height still to go...
-const FACE_DAMP := 1.0        # ...less this much per face height a second you're already moving that way
+# Long range (settings, the default): the carve's angle up or down the face is
+# set by how far the thumb has travelled up or down from where it touched down
+# (lift, -1..1 over a third of the screen), not by the stick's short radius. A
+# recorded ride: 64 px up (7 mm, the whole stick) pointed the board straight
+# up the face and over the back. Now that's a slight climb. Gentle near the
+# middle (RANGE_CURVE), the steepest carve at the end. How quick the thumb is
+# sets how fast the board turns (SNAP_TURN), not how far.
+const RANGE_CURVE := 1.5
+const SNAP_TURN := 1.8        # a quick thumb turns a carve up to this many times faster
 const FOAM_REACH := 1.5       # m ahead of the curl the whitewater pile already reaches: a rebound counts from here
 const FOAM_HOLD := 1.0        # m behind the curl the whitewater shoves you along at, rather than letting you plough deeper
 const FOAM_MAX := 2.0         # s in the whitewater before it buries you
@@ -172,11 +174,12 @@ var _was_sweeping := false   # last tick the thumb was pushed out far enough for
 ## Set by main each tick: the thumb is positioning (slow), not snapping. Scripted riders leave it false.
 var fine := false
 var hold_enabled := true      # settings: height hold for the stick
-## Set by main each tick (settings): face steering, and the height the thumb asks for (-1: none).
-var face_mode := false
-var face_t := -1.0
-var face_goal := -1.0         # the height being steered to (the thumb's, or held since it lifted); -1 when not face steering
-var _face_hold := -1.0
+## Set by main each tick: long range (settings), the thumb's travel up or down
+## from touch-down (lift) and whether it's down, and how quick it's just been (snap, 0..1).
+var long_range := false
+var lift := 0.0
+var lift_on := false
+var snap := 0.0
 var holding := false          # holding height (fine, near level)
 var hold_t := 0.0             # the height being held
 var _light_time := 0.0       # s the thumb has been near the stick's centre
@@ -250,8 +253,6 @@ func reset(start_x: float) -> void:
 	_since_cut = 10.0
 	holding = false
 	hold_t = t
-	face_goal = -1.0
-	_face_hold = -1.0
 	_light_time = 0.0
 	_stall_hold = false
 	pump_phase = PUMP_IDLE
@@ -326,6 +327,7 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 	_board_ang += wrapf(board_world - _board_ang, -PI, PI)
 	var sweeping := strength >= SWEEP_PUSH
 	var hold_now := false
+	var by_lift := long_range and lift_on   # long range: the thumb's travel sets the carve
 	if steering:
 		var raw := aim.angle()
 		var step_ang := wrapf(raw - _thumb_ang, -PI, PI)
@@ -376,8 +378,8 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 			# you push is how far round: a small push angles the board part way
 			# toward your thumb (a small adjustment), a full one all the way.
 			# Coming out of a turn-around the nose keeps the cutback's pace.
-			var cap := CUTBACK_TURN if absf(phi) > MAX_PHI else TURN
-			var target := clampf(want, -MAX_PHI, MAX_PHI) * strength
+			var cap := _carve_cap()
+			var target := _lift_target() if by_lift else clampf(want, -MAX_PHI, MAX_PHI) * strength
 			if hold_enabled and fine and absf(target) < HOLD_ANG and pump_phase == PUMP_IDLE and t >= 0.0 and absf(phi) <= MAX_PHI:
 				# Positioning: the aim is a climb or drop, none near level
 				# (HOLD_DEAD), gentle past it (squared), the same as the carve
@@ -401,26 +403,10 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 			cutting = true
 			var world_rate := clampf(diff * AIM_GAIN, -1.0, 1.0) * CUTBACK_TURN * strength
 			target_rate = facing * world_rate   # phi is measured from facing
-	if face_mode:
-		# The thumb picks a height; the board steers there (unless turning
-		# round or stalling, which the stick still does). Pumping, it rides
-		# level and the pump does the up and down.
-		if face_t >= 0.0:
-			_face_hold = -1.0
-			face_goal = face_t
-		else:
-			if _face_hold < 0.0:
-				_face_hold = clampf(t, 0.05, 0.95)
-			face_goal = _face_hold
-		if not cutting and not _stall_hold:
-			var want_phi := 0.0
-			if pump_phase == PUMP_IDLE:
-				var climbing := v * sin(phi) / flen   # face heights a second
-				want_phi = clampf((face_goal - t) * FACE_GAIN - climbing * FACE_DAMP, -MAX_PHI, MAX_PHI)
-			var cap := CUTBACK_TURN if absf(phi) > MAX_PHI else TURN
-			target_rate = clampf((want_phi - phi) * AIM_GAIN, -1.0, 1.0) * cap
-	else:
-		face_goal = -1.0
+	if by_lift and not steering and not _stall_hold:
+		# Long range with the thumb near the stick's centre (no direction to
+		# read): still carving to its travel up or down.
+		target_rate = clampf((_lift_target() - phi) * AIM_GAIN, -1.0, 1.0) * _carve_cap()
 	# For drawing (lean, spray), in world terms: the way the board is actually
 	# turning. phi is measured from facing, so its sign flips when you pass
 	# vertical in a cutback, but the turn (and the lean into it) doesn't.
@@ -444,7 +430,7 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 		if facing > 0.0 and near_foam and _clock - _rebound_time < REBOUND_GRACE:
 			_rebounded = true
 	var turning_around := cutting or absf(phi) > MAX_PHI
-	if not steering and not face_mode:
+	if not steering and not by_lift:
 		phi = lerpf(phi, 0.0, 1.0 - exp(-RECENTER * dt))
 	if not turning_around and absf(phi) > MAX_PHI:
 		phi = move_toward(phi, signf(phi) * MAX_PHI, TURN * dt)
@@ -535,6 +521,18 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 		_wipeout("Rode off the front of the wave")
 	elif v < MIN_SPEED:
 		_wipeout("Buried in the whitewater" if in_foam else "Lost the wave")
+
+
+## Long range: the carve angle for the thumb's travel up or down from touch-down.
+func _lift_target() -> float:
+	return signf(lift) * MAX_PHI * pow(absf(lift), RANGE_CURVE)
+
+
+## How fast a carve turns: quicker coming out of a turn-around, and quicker
+## for a quick thumb (long range only: the short stick jumps to full instead).
+func _carve_cap() -> float:
+	var cap := CUTBACK_TURN if absf(phi) > MAX_PHI else TURN
+	return cap * (lerpf(1.0, SNAP_TURN, snap) if long_range else 1.0)
 
 
 ## Cutback scoring: turning to face the curl, then back down the line.

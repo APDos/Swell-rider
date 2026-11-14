@@ -123,8 +123,8 @@ func set_barrel(on: bool, secs: float, depth: float) -> void:
 
 func set_help(settings) -> void:
 	var steer := "Right thumb: point the nose (sweep up and round to cut back; straight back to stall)"
-	if settings.face_steering():
-		steer = "Right thumb: up and down picks your height on the wave (sweep round to cut back; straight back to stall)"
+	if settings.long_range:
+		steer = "Right thumb: slide up or down to carve, further for steeper (sweep round to cut back; straight back to stall)"
 	help.text = steer + "   Left thumb: hold to pump, lift to turn up   ⚙ settings   Hold ↻: restart"
 
 

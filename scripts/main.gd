@@ -54,7 +54,6 @@ var _rng := RandomNumberGenerator.new()   # the ride's wave (height), seeded per
 var _replay_check := false  # --replay headless: print how the replay compares, then quit
 var settings = SettingsScript.new()   # control options (the ⚙ menu); a replay uses its recording's
 var settings_menu
-var _marker: MeshInstance3D   # face steering: the height you're steering to, on the wave
 
 
 func _ready() -> void:
@@ -119,18 +118,6 @@ func _ready() -> void:
 	settings_menu.main = self
 	settings_menu.settings = settings
 	add_child(settings_menu)
-	_marker = MeshInstance3D.new()
-	var bar := BoxMesh.new()
-	bar.size = Vector3(2.4, 0.07, 0.07)
-	_marker.mesh = bar
-	var mm := StandardMaterial3D.new()
-	mm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mm.albedo_color = Color(1.0, 0.95, 0.4, 0.75)
-	mm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mm.no_depth_test = true
-	_marker.material_override = mm
-	_marker.visible = false
-	add_child(_marker)
 	hud.set_help(settings)
 	recorder = RecorderScript.new()
 	recorder.main = self
@@ -276,25 +263,33 @@ func _physics_process(dt: float) -> void:
 	var aim := Vector2.ZERO
 	var pump := 0.0
 	var fine := false   # positioning (a slow thumb): see surfer.HOLD_ANG
-	var face_t := -1.0  # face steering: the height the thumb asks for
+	var snap := 0.0     # how quick the thumb has just been (0..1)
+	var lift := 0.0     # long range: the thumb's travel up or down from touch-down...
+	var lift_on := false   # ...while it's down (scripted riders: never, they steer by aim)
 	if barrel_test:
 		aim = _barrel_test_aim()
 	elif rider != null:
 		aim = rider.aim(surfer)
 		if rider.has_method("pump"):
 			pump = rider.pump(surfer)
-		if rider.has_method("fine"):
-			fine = rider.fine(surfer)
-		if rider.has_method("face_t"):
-			face_t = rider.face_t(surfer)
+		if rider.has_method("snap"):
+			snap = rider.snap(surfer)
+			fine = snap < 0.5
+		if rider.has_method("lift"):
+			lift = rider.lift(surfer)
+			lift_on = rider.lift_on(surfer)
 	else:
 		aim = touch.aim
 		pump = touch.pump
+		snap = touch.snap
 		fine = touch.fine
-		face_t = touch.face_t
+		lift = touch.lift
+		lift_on = touch.lift_on
 	surfer.fine = fine
-	surfer.face_t = face_t
-	surfer.face_mode = settings.face_steering() and not barrel_test
+	surfer.snap = snap
+	surfer.lift = lift
+	surfer.lift_on = lift_on
+	surfer.long_range = settings.long_range and not barrel_test
 	surfer.hold_enabled = settings.height_hold
 
 	_prev_curl = wave.curl_x
@@ -340,17 +335,7 @@ func _process(delta: float) -> void:
 	var H: float = wave.height_at(curl_draw)
 	curl_spray.global_position = Vector3(curl_draw - 0.5, 0.45 * H, 0.75 * H)
 	_update_camera(delta)
-	_update_marker()
 	_maybe_screenshot()
-
-
-## Face steering: a bar on the wave a little ahead of you at the height you're steering to.
-func _update_marker() -> void:
-	var on: bool = settings.marker and surfer.face_goal >= 0.0 and surfer.state == surfer.RIDING and state == PLAYING
-	_marker.visible = on
-	if on:
-		var mx: float = surfer.vis_x + surfer.facing * 3.0
-		_marker.global_position = wave.face_point(mx, clampf(surfer.face_goal, 0.0, 1.0)) + Vector3(0.0, 0.05, 0.3)   # just off the face, toward the camera
 
 
 func _update_curl(dt: float) -> void:

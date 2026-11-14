@@ -47,7 +47,6 @@ func _run() -> void:
 	await _straight_into_whitewater_wipes_out()
 	await _lip_hit_scores()
 	await _over_the_lip_is_an_air_or_over_the_back()
-	await _face_steering_picks_your_height()
 	if _failures == 0:
 		print("PASS test_controls")
 		quit(0)
@@ -87,6 +86,13 @@ func _thumb_down() -> void:
 
 func _point(dir: Vector2) -> void:
 	_drag(0, _stick_at + dir.normalized() * 60.0)
+
+
+## Long range (the default): slide the thumb up (lift > 0) or down this
+## fraction of touch.RANGE_PX from where it touched down, `ahead` px down the
+## line, so the stick still points ahead (a carve, not a turn-around).
+func _carve(lift: float, ahead := 40.0) -> void:
+	_drag(0, _stick_at + Vector2(ahead, -lift * main.touch.RANGE_PX))
 
 
 func _thumb_up() -> void:
@@ -161,7 +167,7 @@ func _held_up_air_lands_clean() -> void:
 		await physics_frame
 	main.rider = null
 	_thumb_down()
-	_point(UP)
+	_carve(1.0, 0.0)   # slide all the way up
 	for i in 600:
 		await physics_frame
 		if s.state == s.AIR:
@@ -380,7 +386,7 @@ func _pointing_down_rides_out_front() -> void:
 	s.wiped_out.connect(on_wipe)
 	var t_min: float = s.t
 	_thumb_down()
-	_point(DOWN)
+	_carve(-1.0)   # slide all the way down
 	for i in 240:
 		await physics_frame
 		t_min = minf(t_min, s.t)
@@ -636,8 +642,19 @@ func _lip_hit_scores() -> void:
 		var on_trick := func(n, _p): tricks.append(n)
 		s.trick_landed.connect(on_trick)
 		_thumb_down()
-		var high := await _point_until(Vector2(1, -0.6), func(): return s.t > 0.85, 120)
-		await _hold_point(DOWN_RIGHT if snap else RIGHT, 50)
+		_carve(0.55)  # slide well up: a carve of about 30°
+		var high := false
+		for i in 120:
+			await physics_frame
+			if s.t > 0.85:
+				high = true
+				break
+		if snap:
+			_carve(-0.8)   # and snap the thumb down
+		else:
+			_carve(0.0)    # or just back to level
+		for i in 50:
+			await physics_frame
 		_thumb_up()
 		s.trick_landed.disconnect(on_trick)
 		var hit := tricks.any(func(n): return n in lip_tricks)
@@ -688,42 +705,61 @@ func _settling_thumb_is_neutral() -> void:
 		_fail("a quick flick right after touching down should steer at once (aim %s)" % flick)
 
 
-## Sensitivity: a small, slow slide is a small adjustment; a quick move (a
-## flick, barely bigger) is the full turn. From a recorded ride: a slow 34 px
-## slide down-right dove the board to -45° and off the bottom of the wave.
+## Sensitivity. From recorded rides: a slow 34 px slide down-right dove the
+## board to -45° and off the bottom of the wave; a quick 64 px move up (the
+## whole short stick, 7 mm) pointed it straight up the face and over the back.
 ## Recorded thumbs: small adjustments and a settling thumb move at most ~36 px
 ## in 3 ticks, real flicks 45-175 px.
+## - Long range (the default): small moves are small, slow or quick; it takes
+##   a long slide (touch.RANGE_PX) for the steepest carve.
+## - Short (the original stick): a small slow slide is small, a quick flick
+##   barely bigger is the full turn.
 func _small_slide_is_a_small_adjustment() -> void:
-	var result := {}
-	for quick in [false, true]:
-		await _ride_setup(60.0)
-		var s = main.surfer
-		var t0: float = s.t
-		var dir := Vector2(0.71, 0.71)   # down the face and down the line, screen y down
-		_thumb_down()
-		for i in 12:   # let it settle (touch.SETTLE_TICKS), as in the recording
-			await physics_frame
-		if quick:
-			_drag(0, _stick_at + dir * 50.0)
-			await physics_frame
-		else:
-			for i in 10:   # 34 px over 10 ticks
-				_drag(0, _stick_at + dir * 3.4 * float(i + 1))
+	for mode in ["long", "short"]:
+		main.settings.parse("range=" + mode)
+		var result := {}
+		for move in ["slow", "quick", "long"]:
+			if mode == "short" and move == "long":
+				continue
+			await _ride_setup(60.0)
+			var s = main.surfer
+			var t0: float = s.t
+			var dir := Vector2(0.71, 0.71)   # down the face and down the line, screen y down
+			_thumb_down()
+			for i in 12:   # let it settle (touch.SETTLE_TICKS), as in the recording
 				await physics_frame
-		var steepest := 0.0
-		for i in 45:
-			await physics_frame
-			steepest = minf(steepest, s.heading())
-		_thumb_up()
-		result[quick] = [steepest, t0 - s.t]
-	var slow: Array = result[false]
-	var fast: Array = result[true]
-	if slow[0] < deg_to_rad(-25.0):
-		_fail("a small slow slide down should only angle the board down a little (it went to %.0f°)" % rad_to_deg(slow[0]))
-	if fast[0] > deg_to_rad(-38.0):
-		_fail("a quick flick should be the full turn (only reached %.0f°)" % rad_to_deg(fast[0]))
-	if slow[1] > 0.6 * fast[1]:
-		_fail("a small slow slide down should drop you down the face far less than a flick (%.2f vs %.2f)" % [slow[1], fast[1]])
+			if move == "quick":
+				_drag(0, _stick_at + dir * 50.0)
+				await physics_frame
+			elif move == "slow":
+				for i in 10:   # 34 px over 10 ticks
+					_drag(0, _stick_at + dir * 3.4 * float(i + 1))
+					await physics_frame
+			else:
+				for i in 20:   # all the way down, over a third of a second
+					_carve(-float(i + 1) / 20.0)
+					await physics_frame
+			var steepest := 0.0
+			for i in 45:
+				await physics_frame
+				steepest = minf(steepest, s.heading())
+			_thumb_up()
+			result[move] = [steepest, t0 - s.t]
+		var slow: Array = result["slow"]
+		var fast: Array = result["quick"]
+		if slow[0] < deg_to_rad(-25.0):
+			_fail("%s: a small slow slide down should only angle the board down a little (it went to %.0f°)" % [mode, rad_to_deg(slow[0])])
+		if mode == "short":
+			if fast[0] > deg_to_rad(-38.0):
+				_fail("short: a quick flick should be the full turn (only reached %.0f°)" % rad_to_deg(fast[0]))
+			if slow[1] > 0.6 * fast[1]:
+				_fail("short: a small slow slide down should drop you down the face far less than a flick (%.2f vs %.2f)" % [slow[1], fast[1]])
+		else:
+			if fast[0] < deg_to_rad(-25.0):
+				_fail("long: a quick 50 px flick should still be a small adjustment (it went to %.0f°)" % rad_to_deg(fast[0]))
+			if result["long"][0] > deg_to_rad(-60.0):
+				_fail("long: sliding all the way down should be a steep carve (only reached %.0f°)" % rad_to_deg(result["long"][0]))
+	main.settings.parse("range=long")
 
 
 ## Lining up on the wave (height hold). From recorded rides: every 5° the
@@ -733,6 +769,7 @@ func _small_slide_is_a_small_adjustment() -> void:
 ## bit and holds there. A snap is still a carve at the thumb's angle. A quick
 ## move back toward the middle is re-centring, not a full-strength flick.
 func _height_hold_lines_you_up() -> void:
+	main.settings.parse("range=short height_hold=1")   # the hold, on the stick it was made for
 	await _ride_setup(60.0)
 	var s = main.surfer
 	var touch = main.touch
@@ -784,6 +821,7 @@ func _height_hold_lines_you_up() -> void:
 	if touch.aim.length() > 0.65:
 		_fail("a quick move back toward the middle is re-centring, not a full-strength flick (push %.2f)" % touch.aim.length())
 	_thumb_up()
+	main.settings.parse("range=long height_hold=0")
 
 
 ## Pointing up, a hair left of vertical, is a carve up the face, not a cutback.
@@ -852,55 +890,16 @@ func _over_the_lip_is_an_air_or_over_the_back() -> void:
 		s.phi = 0.9
 		s.v = 13.0 if fast else 6.0
 		_thumb_down()
-		var reached := await _point_until(UP_RIGHT, func(): return s.state != s.RIDING, 60)
+		_carve(0.8)
+		var reached := false
+		for i in 60:
+			await physics_frame
+			if s.state != s.RIDING:
+				reached = true
+				break
 		_thumb_up()
 		s.wiped_out.disconnect(on_wipe)
 		if fast and s.state != s.AIR:
 			_fail("up through the lip at 13 m/s should be an air (state %d, %s)" % [s.state, why[0]])
 		elif not fast and not "over the back" in why[0]:
 			_fail("up through the lip at 6 m/s should go over the back and lose the wave (reached %s, state %d, '%s')" % [reached, s.state, why[0]])
-
-
-## Face steering (settings FACE): the thumb's height picks your height on the
-## wave. Touching down is neutral; sliding up a fifth of the screen takes you
-## up the face and levels off there; lifting holds it. SLIDER: the screen is a
-## fixed slider, so touching near the top heads for the top of the wave.
-func _face_steering_picks_your_height() -> void:
-	var settings = main.settings
-	settings.parse("steering=face")
-	await _ride_setup(60.0)
-	var s = main.surfer
-	var view: Vector2 = main.get_viewport().get_visible_rect().size
-	var down := Vector2(view.x * 0.8, view.y * 0.55)
-	_touch(0, down, true)
-	for i in 12:
-		await physics_frame
-	var t0: float = s.t
-	if absf(s.face_goal - t0) > 0.02:
-		_fail("face steering: touching down should keep you where you are (goal %.2f, at %.2f)" % [s.face_goal, t0])
-	for i in 30:   # slide up a fifth of the screen in half a second
-		_drag(0, down + Vector2(0, -view.y * 0.2 * (i + 1) / 30.0))
-		await physics_frame
-	for i in 90:
-		await physics_frame
-	if s.t - t0 < 0.12:
-		_fail("face steering: sliding the thumb up should take you up the face (moved %.2f)" % (s.t - t0))
-	if absf(s.t - s.face_goal) > 0.05 or absf(rad_to_deg(s.phi)) > 8.0:
-		_fail("face steering: it should level off at the height asked for (at %.2f, goal %.2f, board %.0f°)" % [s.t, s.face_goal, rad_to_deg(s.phi)])
-	_touch(0, down, false)
-	var t1: float = s.t
-	for i in 60:
-		await physics_frame
-	if absf(s.t - t1) > 0.04:
-		_fail("face steering: lifting the thumb should hold your height (moved %.2f)" % (s.t - t1))
-	settings.parse("steering=slider")
-	await _ride_setup(60.0)
-	_touch(0, Vector2(view.x * 0.8, view.y * 0.2), true)
-	for i in 12:
-		await physics_frame
-	if main.surfer.face_goal < 0.75:
-		_fail("slider: touching near the top of the screen should head for the top of the wave (goal %.2f)" % main.surfer.face_goal)
-	_touch(0, Vector2(view.x * 0.8, view.y * 0.2), false)
-	settings.parse("steering=stick")
-	await _fresh()
-

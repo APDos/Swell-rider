@@ -3,7 +3,7 @@
 Side-view wave riding in Godot 4.3+. Everything (wave, surfer, HUD) is built in code, so there are no assets to import.
 
 ## Controls (iPhone, landscape)
-- **Right thumb: point the nose.** Touch anywhere on the right half (where you touch is neutral) and slide toward where you want the board to go; it carves round to follow your thumb. A small, slow slide is a small adjustment; slide further, or flick quickly, for the full turn. How fast you move tells positioning from tricks. Moving your thumb slowly near level is **height hold**: roughly level (within about 8°) keeps you at the height you're at, and a slow nudge up or down moves you a little up or down the face and then holds there. Push further (past about 30°, or a full push at a steeper angle) and it's a normal carve. Snap your thumb quickly and it's a carve at once, at your thumb's angle, until you next move slowly.
+- **Right thumb: steer.** Touch anywhere on the right half (where you touch is neutral). The direction you move it is where the nose goes; how far you slide it up or down from where you touched is how steeply you carve: a few mm is a slight climb or drop, about a third of the screen the steepest carve. Moving quickly makes the board turn faster, not further. (Settings can switch back to the original short stick, where the 80 px circle is the whole range and a quick move jumps to the full turn, and turn on height hold.)
   - Up / down: carve up the face (lip, airs) or down it. Keep pointing down and you ride out onto the flat water in front of the wave.
   - **Cutback**: one sweep of the thumb, like drawing a backwards S (or a 2). The reverse C (up, up-back, back, down-back) turns the nose up and round to point at the barrel; keep sweeping on round the bottom (down, down-ahead, ahead) and the board drops down the face and comes back round the bottom, down the line. The board follows the way your thumb is sweeping, so it never doubles back on you. Or, once you're facing the barrel, just slide your thumb straight across to point back down the line: the board turns back the short way, round the bottom.
   - **Stall**: point straight behind you while the board is running level. Your weight goes on the tail, which brakes harder the faster you're going.
@@ -11,10 +11,8 @@ Side-view wave riding in Godot 4.3+. Everything (wave, surfer, HUD) is built in 
 - **Left thumb: pump.** Hold anywhere on the left half to drive down the face, lift to turn off the bottom and carve back up. See below.
 - After a wipeout, tap to paddle back out. Mid-ride, hold the ↻ in the top-right corner to restart.
 - **⚙ Settings** (next to ↻): pauses and lets you switch control options to try out. Changing anything starts a new ride. Choices are saved on the phone and written into each ride recording.
-  - **Steering: Stick** (above). **Height hold** on/off.
-  - **Steering: Face**: your thumb's height on the screen is your height on the wave. Where you touch is where you are now; sliding up to the top of the screen takes you up to the lip, down to the bottom takes you down to the trough. The board steers itself there: a quick thumb is a steep, snappy move, a slow one gentle. Lift and you hold that height. Touching down near the very top or bottom counts as touching a bit further in, so there's always room to move both ways. Cutbacks and the stall work as with the stick.
-  - **Steering: Slider**: the same, but the screen is a fixed slider: top = lip, bottom = trough, wherever you touch.
-  - **Height marker** on/off: Face and Slider show a bar on the wave at the height you're steering to.
+  - **Steering range: Long** (above) or **Short** (the original stick).
+  - **Height hold** on/off (off by default): a slow thumb near level holds your height on the wave.
 
 ## Build and install
 Godot 4.7.2 with its iOS export template, and **Xcode 26 or later** (Godot 4.7's iOS template links against the iOS 26 SDK). Minimum iOS is 16. Sign in to your Apple account in Xcode > Settings > Accounts, plug in and unlock the phone (trust the developer profile on first install: Settings > General > VPN & Device Management), then:

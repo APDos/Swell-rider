@@ -29,7 +29,7 @@ func _run() -> void:
 	var view: Vector2 = main.get_viewport().get_visible_rect().size
 	_stick_at = Vector2(view.x * 0.8, view.y * 0.6)
 	_pump_at = Vector2(view.x * 0.2, view.y * 0.6)
-	for mode in ["stick", "face"]:
+	for mode in ["long", "short"]:
 		await _record_and_replay(mode)
 	_clear()
 	_end()
@@ -99,7 +99,7 @@ func _end() -> void:
 func _record_and_replay(mode: String) -> void:
 	main.rider = null
 	main.recorder.enabled = true
-	main.settings.parse("steering=" + mode)
+	main.settings.parse("range=" + mode)
 	seed(4321)
 	main._reset()
 	var path: String = main.recorder.path
@@ -124,14 +124,14 @@ func _record_and_replay(mode: String) -> void:
 		_fail("no pump events in the recording (%s)" % mode)
 	if text.find(",-1,-1,-1,-1,") < 0 or text.find("stick_x") < 0:
 		_fail("the thumb columns look wrong (%s)" % mode)
-	if text.find("# settings steering=" + mode) < 0:
+	if text.find("# settings range=" + mode) < 0:
 		_fail("the recording should say which settings it was played with (%s)" % mode)
-	if mode == "face" and not r.face_ts.any(func(f): return f >= 0.0):
-		_fail("a face-steering recording should have the thumb's height target")
+	if mode == "long" and not r.lift_ons.any(func(on): return on):
+		_fail("a long-range recording should have the thumb's travel (lift)")
 
 	# Play it back on a new ride: same wave, same input, same settings, same result.
 	main.recorder.enabled = false
-	main.settings.parse("steering=" + ("face" if mode == "stick" else "stick"))
+	main.settings.parse("range=" + ("short" if mode == "long" else "long"))
 	main.rider = r
 	main._reset()
 	while not r.done and r.diverged_at < 0 and main.state == main.PLAYING:

@@ -17,13 +17,15 @@ extends CanvasLayer
 ##   settling after a sweep creeps a few px without turning, which doesn't
 ##   count). While fine, small aims near level hold your height on the wave
 ##   (surfer.gd, HOLD_ANG) instead of angling the board.
-##   With face steering (settings.gd FACE / SLIDER) the thumb's height on the
-##   screen also sets face_t, the height on the wave to steer to (see _face).
-##   The stick still turns you round and stalls the same way.
+##   Long range (settings.gd, the default): how far the board angles up or
+##   down the face is how far the thumb has travelled up or down from where it
+##   touched down (`lift`), over RANGE_PX, not the stick's short radius: a
+##   few mm is a slight climb, a third of the screen the steepest carve. The
+##   stick still gives the direction: turning round, the stall, air spins.
 ## - Left half: hold to pump (drive), lift your thumb to turn off the bottom.
 ## - After a wipeout, a tap paddles back out. Mid-ride, hold the ↻ corner.
 ##   Tap ⚙ (next to it) for the settings.
-## main.gd reads aim, fine, face_t, pump, restart_down and consume_tap() each physics tick.
+## main.gd reads aim, snap, lift, pump, restart_down and consume_tap() each physics tick.
 
 const RADIUS := 80.0        # px (viewport): size of the drawn stick; the centre follows your thumb past it
 const DEADZONE := 0.15      # of RADIUS: smaller than this is no input
@@ -38,21 +40,19 @@ const SNAP_SPEED := 12.0   # ...faster is a snap (recorded snaps run 25-55)
 const SNAP_FADE := deg_to_rad(15.0)   # after a snap, slowly turning the thumb this far brings the precision back
 const RESTART_SIZE := Vector2(120, 100)   # the ↻ hold area, top-right corner
 const GEAR_SIZE := Vector2(110, 100)      # the ⚙ tap area, just left of it
-# Face steering: the band of the screen the thumb's height maps onto the wave,
-# inside the safe area. Touching down in its top or bottom FACE_ZONE counts as
-# touching at the edge of the middle, so there's always room to move both ways.
-const FACE_EDGE := 30.0     # px (viewport) in from the safe area's top and bottom
-const FACE_ZONE := 0.2      # of the band
-const FACE_TOP := 1.0       # t at the top of the band: the lip
-const FACE_BOTTOM := 0.05   # t at the bottom: the trough
+const RANGE_PX := 240.0     # px (viewport, a third of the screen's height) up or down from touch-down for the steepest carve
 
 var main   # main.gd, for its state
 
 ## Where the right thumb points: x toward down the line (right), y up the face
 ## (screen y flipped), length 0..1 for how far it's pushed.
 var aim := Vector2.ZERO
-## Face steering: the height on the wave (t) the thumb asks for, -1 with no thumb.
-var face_t := -1.0
+## Long range: the thumb's travel up (+) or down from where it touched down,
+## in RANGE_PX (-1..1), and whether it's down at all.
+var lift := 0.0
+var lift_on := false
+## How quick the thumb has just been: 1 after a fast move, back to 0 as it turns slowly.
+var snap := 0.0
 var settings   # settings.gd (main's)
 ## False just after a snap (a fast thumb), true otherwise: positioning, not a trick.
 var fine := true
@@ -73,8 +73,7 @@ var _thumb_ang := 0.0             # the thumb's angle (radians, y up) at the las
 var _pump_id := -1
 var _pump_pos := Vector2.ZERO
 var _restart_id := -1
-var _face_t0 := 0.5        # FACE: your height when the thumb touched down...
-var _face_y0 := 0.0        # ...and where it touched (clamped into the middle of the band)
+var _anchor_y := 0.0       # long range: where the thumb touched down (y), re-set after a turn-around
 var _canvas: Control
 var _inset := Rect2()   # safe-area margins in viewport px: position = left/top, size = right/bottom
 
@@ -161,9 +160,8 @@ func _input(event: InputEvent) -> void:
 					_stick_settled = false
 					_flick = false
 					_stick_hist.clear()
-					_face_t0 = clampf(main.surfer.t, FACE_BOTTOM, FACE_TOP) if main != null else 0.5
-					_face_y0 = _face_clamp(p.y)
-					_face()
+					_anchor_y = p.y
+					_update_lift()
 			elif _pump_id == -1:
 				_pump_id = event.index
 				_pump_pos = p
@@ -188,9 +186,9 @@ func _input(event: InputEvent) -> void:
 				elif _stick_pos.distance_to(_stick_down) <= SETTLE_PX:
 					# The thumb settling onto the glass: still neutral.
 					_stick_origin = _stick_pos
-					_face_y0 = _face_clamp(_stick_pos.y)
+					_anchor_y = _stick_pos.y
 					_set_stick(Vector2.ZERO)
-					_face()
+					_update_lift()
 					_canvas.queue_redraw()
 					return
 				else:
@@ -209,7 +207,7 @@ func _input(event: InputEvent) -> void:
 				_stick_origin = _stick_pos - off.normalized() * RADIUS
 				off = _stick_pos - _stick_origin
 			_set_stick(off / RADIUS)
-			_face()
+			_update_lift()
 			_canvas.queue_redraw()
 		elif event.index == _pump_id:
 			_pump_pos = event.position
@@ -222,7 +220,7 @@ func _input(event: InputEvent) -> void:
 func _set_stick(v: Vector2) -> void:
 	var len := minf(v.length(), 1.0)
 	if _stick_id == -1:
-		face_t = -1.0
+		_update_lift()
 	if len < DEADZONE:
 		aim = Vector2.ZERO
 		_flick = false   # back in the middle: the next push is measured afresh
@@ -240,36 +238,20 @@ func _set_stick(v: Vector2) -> void:
 		_thumb_ang = ang
 		aim = Vector2(v.x, -v.y).normalized() * amount
 	fine = _snap < 0.5
+	snap = _snap
 
 
-## Face steering: the thumb's height on the screen to a height on the wave.
-## FACE: where you touched is where you were; up to the top of the band is up
-## to the lip, down to the bottom is down to the trough, each side stretched
-## to fit. SLIDER: the band is a fixed slider, top = lip, bottom = trough.
-func _face() -> void:
-	if settings == null or not settings.face_steering() or _stick_id == -1:
-		face_t = -1.0
+## Long range: the thumb's travel up or down from where it touched down. While
+## the board is turning round, the thumb's sweep is about direction, so the
+## touch-down point follows it: once round, where the thumb is counts as level.
+func _update_lift() -> void:
+	lift_on = _stick_id != -1
+	if not lift_on:
+		lift = 0.0
 		return
-	var band := _face_band()
-	var y := clampf(_stick_pos.y, band.x, band.y)
-	if settings.steering == settings.SLIDER:
-		face_t = lerpf(FACE_BOTTOM, FACE_TOP, (band.y - y) / (band.y - band.x))
-	elif y <= _face_y0:
-		face_t = lerpf(_face_t0, FACE_TOP, (_face_y0 - y) / maxf(_face_y0 - band.x, 1.0))
-	else:
-		face_t = lerpf(_face_t0, FACE_BOTTOM, (y - _face_y0) / maxf(band.y - _face_y0, 1.0))
-
-
-## The band's top and bottom (viewport y).
-func _face_band() -> Vector2:
-	return Vector2(_inset.position.y + FACE_EDGE, _view_size().y - _inset.size.y - FACE_EDGE)
-
-
-## A touch-down height, kept out of the band's top and bottom FACE_ZONE.
-func _face_clamp(y: float) -> float:
-	var band := _face_band()
-	var zone := (band.y - band.x) * FACE_ZONE
-	return clampf(y, band.x + zone, band.y - zone)
+	if main != null and main.surfer.cutting:
+		_anchor_y = _stick_pos.y
+	lift = clampf((_anchor_y - _stick_pos.y) / RANGE_PX, -1.0, 1.0)
 
 
 ## How fast the thumb is moving: px per physics tick over the last few ticks.
@@ -286,6 +268,7 @@ func _physics_process(_dt: float) -> void:
 	_stick_hist.append(_stick_pos)
 	while _stick_hist.size() > FLICK_TICKS:
 		_stick_hist.pop_front()
+	_update_lift()
 
 
 func _on_draw() -> void:
@@ -302,12 +285,12 @@ func _on_draw() -> void:
 		_canvas.draw_line(gc + d * 13.0, gc + d * 20.0, line, 4.0, true)
 	if main == null or main.state == main.WIPEOUT:
 		return
-	if _stick_id != -1 and settings != null and settings.face_steering():
-		# The band the thumb's height maps onto, and where the thumb is on it.
-		var band := _face_band()
+	if _stick_id != -1 and settings != null and settings.long_range:
+		# The carve's range: a track up and down from where the thumb touched down.
 		var bx := _stick_pos.x + 70.0
-		_canvas.draw_line(Vector2(bx, band.x), Vector2(bx, band.y), faint, 6.0, true)
-		_canvas.draw_circle(Vector2(bx, clampf(_stick_pos.y, band.x, band.y)), 9.0, line)
+		_canvas.draw_line(Vector2(bx, _anchor_y - RANGE_PX), Vector2(bx, _anchor_y + RANGE_PX), faint, 6.0, true)
+		_canvas.draw_line(Vector2(bx - 12.0, _anchor_y), Vector2(bx + 12.0, _anchor_y), line, 3.0, true)
+		_canvas.draw_circle(Vector2(bx, clampf(_stick_pos.y, _anchor_y - RANGE_PX, _anchor_y + RANGE_PX)), 9.0, line)
 	if _stick_id != -1:
 		_canvas.draw_circle(_stick_origin, RADIUS, faint)
 		_canvas.draw_arc(_stick_origin, RADIUS, 0.0, TAU, 48, line, 2.0, true)

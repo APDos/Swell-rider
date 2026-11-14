@@ -5,19 +5,17 @@ extends CanvasLayer
 
 const Settings := preload("res://scripts/settings.gd")
 
-const STEERING_HELP := [
-	"Stick: the thumb's direction is where the nose points. Snap for tricks; push past straight back to cut back.",
-	"Face: your thumb's height is your height on the wave. Where you touch is where you are now; the top of the screen is the lip, the bottom the trough. Cut back and stall as with the stick.",
-	"Slider: the screen is a fixed slider: top = lip, bottom = trough, wherever you touch. Cut back and stall as with the stick.",
+const RANGE_HELP := [
+	"Long: how steeply you carve up or down is how far your thumb travels up or down from where you touched, up to a third of the screen. Small moves are small; a quick thumb turns the board faster.",
+	"Short: the original stick. Its 80 px circle is the whole range, and a quick move jumps straight to the full turn.",
 ]
 
 var main
 var settings
 var _changed := false
 var _root: Control
-var _steer_buttons: Array[Button] = []
+var _range_buttons: Array[Button] = []
 var _hold_buttons: Array[Button] = []
-var _marker_buttons: Array[Button] = []
 var _help: Label
 
 
@@ -39,20 +37,18 @@ func _ready() -> void:
 	_root.add_child(box)
 
 	box.add_child(_label("Settings", 36))
-	box.add_child(_label("Steering (right thumb)", 26))
-	_steer_buttons = _segmented(box, ["Stick", "Face", "Slider"], func(i): _set_steering(i))
+	box.add_child(_label("Steering range (right thumb)", 26))
+	_range_buttons = _segmented(box, ["Long", "Short"], func(i):
+		settings.long_range = i == 0
+		_changed = true
+		_refresh())
 	_help = _label("", 18)
 	_help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_help.custom_minimum_size = Vector2(900, 50)
 	box.add_child(_help)
-	box.add_child(_label("Height hold (Stick: a slow thumb near level holds your height)", 22))
+	box.add_child(_label("Height hold (a slow thumb near level holds your height)", 22))
 	_hold_buttons = _segmented(box, ["On", "Off"], func(i):
 		settings.height_hold = i == 0
-		_changed = true
-		_refresh())
-	box.add_child(_label("Height marker (Face / Slider: show where you're steering to)", 22))
-	_marker_buttons = _segmented(box, ["On", "Off"], func(i):
-		settings.marker = i == 0
 		_changed = true
 		_refresh())
 
@@ -88,20 +84,12 @@ func is_open() -> bool:
 	return visible
 
 
-func _set_steering(i: int) -> void:
-	settings.steering = i
-	_changed = true
-	_refresh()
-
-
 func _refresh() -> void:
-	for i in _steer_buttons.size():
-		_steer_buttons[i].button_pressed = i == settings.steering
+	_range_buttons[0].button_pressed = settings.long_range
+	_range_buttons[1].button_pressed = not settings.long_range
 	_hold_buttons[0].button_pressed = settings.height_hold
 	_hold_buttons[1].button_pressed = not settings.height_hold
-	_marker_buttons[0].button_pressed = settings.marker
-	_marker_buttons[1].button_pressed = not settings.marker
-	_help.text = STEERING_HELP[settings.steering]
+	_help.text = RANGE_HELP[0 if settings.long_range else 1]
 
 
 func _segmented(parent: Control, names: Array, on_pick: Callable) -> Array[Button]:
