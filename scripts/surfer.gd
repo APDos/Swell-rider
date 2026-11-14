@@ -261,7 +261,10 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 			var dir := signf(want) if absf(want) <= PI - STALL_CONE else (signf(phi) if phi != 0.0 else 1.0)
 			cutting = true
 			target_rate = dir * CUTBACK_TURN * strength
-	_steer = clampf(target_rate / TURN, -1.0, 1.0)   # for drawing: lean and spray
+	# For drawing (lean, spray), in world terms: the way the board is actually
+	# turning. phi is measured from facing, so its sign flips when you pass
+	# vertical in a cutback, but the turn (and the lean into it) doesn't.
+	_steer = clampf(facing * target_rate / TURN, -1.0, 1.0)
 	# Turns build up and ease off rather than switching on and off instantly.
 	turn_rate = lerpf(turn_rate, target_rate, 1.0 - exp(-TURN_RESPONSE * dt))
 	var was_carving := absf(phi) <= MAX_PHI

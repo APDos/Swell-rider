@@ -40,6 +40,7 @@ var autopilot := false
 var rider = null
 var barrel_test := false  # dev: pins the curl just behind the surfer
 var _look := Vector3.ZERO
+var _cam_lead := 1.5        # m the camera looks ahead of the surfer; eases round when they turn to face the curl
 var shot_path := ""
 var _shots_taken := 0
 var _prev_curl := 0.0       # curl x at the previous tick, for smooth drawing
@@ -281,13 +282,14 @@ func _cam_target() -> Array:
 	var dist: float = 8.0 + 0.9 * H + 0.12 * surfer.v
 	# Out on the flats in front of the wave the camera backs off with you.
 	var out := clampf(-surfer.t, 0.0, 1.0) if surfer.state == surfer.RIDING else 0.0
-	var look: Vector3 = Vector3(p.x + 1.5 * surfer.facing, lerpf(H * 0.5, p.y, 0.35), lerpf(H * 0.4, p.z, 0.3 + 0.5 * out))
+	var look: Vector3 = Vector3(p.x + _cam_lead, lerpf(H * 0.5, p.y, 0.35), lerpf(H * 0.4, p.z, 0.3 + 0.5 * out))
 	var eye: Vector3 = Vector3(p.x - 1.0, H * 0.55 + 1.2, look.z + dist)
 	return [eye, look]
 
 
 func _snap_camera() -> void:
 	surfer.update_visual(0.0)
+	_cam_lead = 1.5 * surfer.facing
 	var tg := _cam_target()
 	cam.global_position = tg[0]
 	_look = tg[1]
@@ -295,6 +297,9 @@ func _snap_camera() -> void:
 
 
 func _update_camera(dt: float) -> void:
+	# Look ahead the way the surfer faces, but swing round gently through a
+	# cutback (about half a second) instead of jumping when they pass vertical.
+	_cam_lead = lerpf(_cam_lead, 1.5 * surfer.facing, 1.0 - exp(-4.0 * dt))
 	var tg := _cam_target()
 	var f := 1.0 - exp(-4.0 * dt)
 	var e: Vector3 = cam.global_position.lerp(tg[0], f)
