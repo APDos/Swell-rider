@@ -8,7 +8,6 @@ extends Node3D
 const WaveScript := preload("res://scripts/wave.gd")
 const SurferScript := preload("res://scripts/surfer.gd")
 const HudScript := preload("res://scripts/hud.gd")
-const Controls := preload("res://scripts/controls.gd")
 const TouchScript := preload("res://scripts/touch.gd")
 const Autopilot := preload("res://scripts/autopilot.gd")
 
@@ -35,20 +34,20 @@ var barrel_max_depth := 0.0
 
 # dev / testing: run with `-- --autopilot --shot=res://shot.png`
 var autopilot := false
-## Anything with steer(surfer) -> float (see autopilot.gd). When set, it drives
-## the surfer instead of the controls. --autopilot sets one; tests plug in others.
+## Anything with aim(surfer) -> Vector2 and pump(surfer) -> float (see
+## autopilot.gd). When set, it drives the surfer instead of the thumbs.
+## --autopilot sets one; tests plug in others.
 var rider = null
 var barrel_test := false  # dev: pins the curl just behind the surfer
 var _look := Vector3.ZERO
 var shot_path := ""
 var _shots_taken := 0
 var _prev_curl := 0.0       # curl x at the previous tick, for smooth drawing
-var _spin_latched := false   # carve input held through takeoff doesn't spin you
+var touch   # touch.gd: the thumbs
 var _restart_held := 0.0
 
 
 func _ready() -> void:
-	Controls.register()
 	randomize()
 	var args := OS.get_cmdline_user_args()
 	autopilot = "--autopilot" in args
@@ -92,10 +91,9 @@ func _ready() -> void:
 
 	hud = HudScript.new()
 	add_child(hud)
-	if is_touch():
-		var touch = TouchScript.new()
-		touch.main = self
-		add_child(touch)
+	touch = TouchScript.new()
+	touch.main = self
+	add_child(touch)
 
 	_reset()
 
@@ -183,82 +181,52 @@ func _schedule_closeout() -> void:
 	wave.closeout = Vector3(x0, x0 + randf_range(12.0, 24.0), 0.95)
 
 
-## Phones and tablets get the thumb controls (scripts/touch.gd).
-static func is_touch() -> bool:
-	return OS.has_feature("mobile") or DisplayServer.is_touchscreen_available()
-
-
-## Riding: up/down carves up/down the face (the pump has its own key); left or
-## right together with up/down turns you around (surfer.step's side input).
-## In the air, left/right or up/down spins, but only once every key held through
-## takeoff has been let go: holding up to hit the lip, or a stall into a launch,
-## shouldn't also spin you into a bad landing.
-func _input_steer() -> float:
-	var carve := Input.get_axis("carve_down", "carve_up")
-	var side := Input.get_axis("spin_right", "spin_left")
-	if surfer.state != surfer.AIR:
-		_spin_latched = absf(carve) > 0.1 or absf(side) > 0.1
-		return carve
-	if _spin_latched and absf(carve) < 0.1 and absf(side) < 0.1:
-		_spin_latched = false
-	if _spin_latched:
-		return 0.0
-	return clampf(side + carve, -1.0, 1.0)
-
-
 func use_autopilot() -> void:
 	autopilot = true
 	rider = Autopilot.new()
 
 
 ## --barreltest: hold a line mid-face with the curl pinned just behind.
-func _barrel_test_steer() -> float:
+func _barrel_test_aim() -> Vector2:
 	if surfer.state == surfer.AIR:
-		return 0.0
+		return Vector2.ZERO
 	var target_phi: float = clampf((0.45 - surfer.t) * 2.5, -0.7, 0.7) - 0.1
-	return clampf((target_phi - surfer.phi) * 3.0, -0.2, 1.0)
+	return Vector2(surfer.facing * cos(target_phi), sin(target_phi))
 
 
 func _physics_process(dt: float) -> void:
-	if Input.is_action_pressed("quit"):
-		get_tree().quit()
-
 	if state == WIPEOUT:
-		if Input.is_action_just_pressed("restart") or Input.is_action_just_pressed("ui_accept"):
+		if touch.consume_tap():
 			_reset()
 			return
-	elif Input.is_action_pressed("restart"):
+	elif touch.restart_down:
+		touch.consume_tap()
 		_restart_held += dt
 		if _restart_held >= RESTART_HOLD:
 			_reset()
 			return
 	else:
+		touch.consume_tap()
 		_restart_held = 0.0
 
-	var steer: float
-	var stall := 0.0
+	var aim := Vector2.ZERO
 	var pump := 0.0
-	var side := 0.0
 	if barrel_test:
-		steer = _barrel_test_steer()
+		aim = _barrel_test_aim()
 	elif rider != null:
-		steer = rider.steer(surfer)
+		aim = rider.aim(surfer)
 		if rider.has_method("pump"):
 			pump = rider.pump(surfer)
-		if rider.has_method("side"):
-			side = rider.side(surfer)
 	else:
-		steer = _input_steer()
-		stall = Input.get_action_strength("stall")
-		pump = Input.get_action_strength("pump")
-		side = Input.get_axis("spin_left", "spin_right")
+		aim = touch.aim
+		pump = touch.pump
 
 	_prev_curl = wave.curl_x
 	if barrel_test and state == PLAYING:
 		wave.curl_x = surfer.x - 3.0
 	else:
 		_update_curl(dt)
-	surfer.step(dt, steer, stall, pump, side)
+	surfer.step(dt, aim, pump)
 
 	if state == PLAYING:
 		ride_time += dt
@@ -349,7 +317,7 @@ func _on_wipeout(reason: String) -> void:
 	state = WIPEOUT
 	best = maxf(best, score)
 	hud.set_barrel(false, 0.0, 0.0)
-	hud.show_message("WIPEOUT\n%s\n\nScore %d   ·   Best %d   ·   %.0fs ride\n\n%s" % [reason, int(score), int(best), ride_time, "Tap to paddle back out" if is_touch() else "Enter / R to paddle back out"])
+	hud.show_message("WIPEOUT\n%s\n\nScore %d   ·   Best %d   ·   %.0fs ride\n\nTap to paddle back out" % [reason, int(score), int(best), ride_time])
 	if autopilot:
 		_reset()
 

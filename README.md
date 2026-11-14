@@ -2,55 +2,39 @@
 
 Side-view wave riding in Godot 4.3+. Everything (wave, surfer, HUD) is built in code, so there are no assets to import.
 
-## Run
-1. Install Godot 4.3 or newer (standard build, not .NET).
-2. In the Project Manager, click Import and pick `project.godot` in this folder.
-3. Press F5.
-
-## iPhone
-The game is meant for the phone: landscape, thumb controls.
-- **Left thumb**: touch anywhere on the left half and drag to point the nose. Up/down carves; toward the curl (behind you) stalls; toward the curl and up/down drives a cutback; ahead levels out. In the air, left/right spins.
-- **Right thumb**: hold anywhere on the right half to pump (drive), lift to turn off the bottom.
+## Controls (iPhone, landscape)
+- **Left thumb: point the nose.** Touch anywhere on the left half and point where you want the board to go; it carves round to follow your thumb.
+  - Up / down: carve up the face (lip, airs) or down it. Keep pointing down and you ride out onto the flat water in front of the wave.
+  - **Cutback**: sweep your thumb in a reverse C (up, up-back, back, down-back) and the nose follows it up and round to point at the barrel. Sweep the other way (up, up-ahead, ahead) to come back down the line.
+  - **Stall**: point straight behind you while the board is running level. Your weight goes on the tail, which brakes harder the faster you're going.
+  - In the air: thumb sideways spins you. Land within about 40° of a full rotation.
+- **Right thumb: pump.** Hold anywhere on the right half to drive down the face, lift to turn off the bottom and carve back up. See below.
 - After a wipeout, tap to paddle back out. Mid-ride, hold the ↻ in the top-right corner to restart.
 
-To build it: Godot 4.7.2 with its iOS export template, and **Xcode 26 or later** (Godot 4.7's iOS template links against the iOS 26 SDK; Xcode 16 fails at the link step). Minimum iOS is 16. Sign in to your Apple account in Xcode > Settings > Accounts, plug in and unlock the phone, then:
+## Build and install
+Godot 4.7.2 with its iOS export template, and **Xcode 26 or later** (Godot 4.7's iOS template links against the iOS 26 SDK). Minimum iOS is 16. Sign in to your Apple account in Xcode > Settings > Accounts, plug in and unlock the phone (trust the developer profile on first install: Settings > General > VPN & Device Management), then:
 ```
 godot --headless --path . --export-debug "iOS" build/ios/SwellRider.ipa
 xcrun devicectl device install app --device <device id> build/ios/SwellRider.ipa
 ```
-`export_presets.cfg` has the signing team and bundle id. The icon is drawn by `tools/make_icon.gd`.
-
-## Controls (keyboard / gamepad)
-| Keyboard | Gamepad | Action |
-|---|---|---|
-| ↑ / W | Left stick up, D-pad up | Carve up the face, toward the lip (for off-the-lips and airs) |
-| ↓ / S | Left stick down, D-pad down | Carve down the face, toward the trough. Keep going and you ride out onto the flat water in front of the wave |
-| Space | Right trigger (analog), A | Pump: hold to drive down the face, release to turn off the bottom and carve back up. See below |
-| The arrow behind you (hold) | Stick away from where you're riding | Stall: weight on the tail, which digs in and brakes. The faster you're going, the harder it brakes. Riding down the line that's ←; once you've cut back to face the barrel it's → |
-| Arrow behind you + ↑ (or ↓) | Stick up-left / down-left (or right) | Drive the nose up (or down) past vertical and around: a cutback toward the barrel, or back down the line. It only turns while you hold it |
-| Arrow ahead of you (+ ↑/↓) | Stick toward where you're riding | Point the nose level (or 45° up/down) |
-| ← / → (or ↑ / ↓) in the air | Left stick, D-pad | Spin. Land within about 40° of a full rotation or you wipe out. Keys held through takeoff don't spin you until you let go of them |
-| Hold R (or Enter) | Hold Start | Restart mid-ride. After a wipeout, tap R, Enter or Space to paddle back out |
-| Esc | Back | Quit |
-
-↑/↓ only choose your line. The pump is a separate move on top of that line. Turns build up and ease off, and when you let go the surfer slowly straightens out. Bindings are set up in `scripts/controls.gd`. Defining an action of the same name under Project Settings > Input Map overrides it.
+`export_presets.cfg` has the signing team and bundle id. The icon is drawn by `tools/make_icon.gd`. Running from the Godot editor on a Mac works with the mouse as a single touch (no pumping while steering).
 
 ## How it plays
 - The break peels down the line at about 9 m/s. If the curl catches you, you wipe out.
 - **Pumping is how you keep up.** The wave alone won't carry you: without pumping, the curl catches you within about 20 seconds. One pump is a small down-and-up S-turn high on the face, the way surfers pump down the line:
-  1. Hold Space: drive. The nose drops down the face and you compress, trading a bit of height for speed.
-  2. Release: you turn off the bottom of that drop. That's where the pump makes its speed (up to about +14 km/h), and the board then carves back up to the height you started from, so pumping keeps you on your line.
+  1. Hold the right thumb: drive. The nose drops down the face and you compress, trading a bit of height for speed.
+  2. Lift it: you turn off the bottom of that drop. That's where the pump makes its speed (up to about +14 km/h), and the board then carves back up to the height you started from, so pumping keeps you on your line.
   3. A quick tap is just a nose flick. Holding past about half a second runs your legs out of travel: the board flattens out where it is and bogs until you let go. Keep holding for a second or more and you've chosen that lower line, so you stay there when you let go.
-- With no input the board trims straight across at the height it's at; ↑/↓ pick your line.
+- With no thumb on the stick the board trims straight across at the height it's at; pointing picks your line.
 - **Pump quality** is shown after each pump with the speed it added ("Pump", "Good pump", "Perfect pump"). A perfect pump gives 3x the speed of a sloppy one. To get one:
   - pump on the steep upper half of the face, not low in the flats or right at the lip
   - drive for about a quarter second before releasing
   - keep a steady rhythm, roughly one pump a second
   - don't mash the key: you can't pump more often than about every 0.6 s (presses sooner are ignored), and mashing between pumps wrecks the next one
-- **Stall** (hold ←) to sit deeper in the pocket or wait for the barrel. The tail digs in, and the drag grows with your speed squared: a stall at full speed brakes hard, a stall when you're slow barely does anything. Stall too long and you lose the wave.
+- **Stall** (point straight back) to sit deeper in the pocket or wait for the barrel. The tail digs in, and the drag grows with your speed squared: a stall at full speed brakes hard, a stall when you're slow barely does anything. Stall too long and you lose the wave.
 - **Riding out in front.** Nothing holds you on the face. Carve down past the trough and you ride onto the flat water in front of the wave: no wave push, and the flats bog you down. Get back up the face while you still have speed; ride too far out (most of a face length) and you've left the wave behind.
-- **Cutback**: when you've run out onto the shoulder, turn back toward the barrel and the power. Hold ← + ↑ (or ← + ↓ for a low one) and drive the nose up past vertical and around; it takes about half a second of holding, and if you let go part way the board stays where it got to. Once you face the barrel, ← is the way you're going and → is behind you (→ alone stalls). Drive back down the line with → + ↑/↓ for a **Cutback**. A cutback keeps about 75% of your speed and stays fairly low on the face (the board is laid over on its rail).
-- **Rebound**: aim at the whitewater after cutting back. It stops you dead, and you have a moment to drive the turn off it yourself (→ + ↑/↓); come around in the foam and it throws you out ahead of the curl, a **Roundhouse Cutback**. Don't turn, hit it high near the lip, or sit in it too long, and it gets you.
+- **Cutback**: when you've run out onto the shoulder, turn back toward the barrel and the power: sweep a reverse C with your left thumb and the nose follows it round. If you stop part way, the board stays where it got to. Sweep forward (up, up-ahead, ahead) to come back down the line for a **Cutback**. A cutback keeps about 75% of your speed and stays fairly low on the face (the board is laid over on its rail).
+- **Rebound**: aim at the whitewater after cutting back. It stops you dead, and you have a moment to sweep the turn off it yourself; come around in the foam and it throws you out ahead of the curl, a **Roundhouse Cutback**. Don't turn, hit it high near the lip, or sit in it too long, and it gets you.
 - Points come from speed, multiplied by how close you are to the pocket (up to x3).
 - **Off the Lip**: hit the top fast at a moderate angle. **Air**: hit the top fast and steep (heading > ~35°, speed > ~32 km/h). You'll need to pump up that speed first.
 - Whenever the lip hangs between the camera and you (riding high by the curl, or in the whitewater), your surfer shows through it as a glowing silhouette.
@@ -61,7 +45,7 @@ xcrun devicectl device install app --device <device id> build/ios/SwellRider.ipa
 - `scripts/wave.gd` + `shaders/wave_shape.gdshaderinc`: the wave shape. The vertex shader (`shaders/wave.gdshader`) builds the wave and lip from a flat grid using the functions in the include. `wave.gd` has a CPU copy of those functions to keep the surfer on the face. The tuning values live only in `wave.gd`'s `SHAPE` table and are pushed to the shader as uniforms. **If you change a formula in one copy, change it in the other and run the tests.** The parity test will catch a mismatch.
 - `scripts/surfer.gd`: face-space physics (x along the line, t up the face, speed, heading), plus airs and wipeouts. The tuning constants are at the top.
 - `scripts/main.gd`: curl and closeout scheduling, scoring, camera, environment. Gameplay runs in `_physics_process` at a fixed 60 ticks per second; drawing runs in `_process`, blended between ticks.
-- `scripts/controls.gd`: input actions and default keyboard and gamepad bindings.
+- `scripts/touch.gd`: the thumb controls (aim, pump, taps), read by main.gd each tick.
 - `scripts/autopilot.gd`: a scripted rider that pumps in rhythm. Used by `--autopilot` and by the tests.
 - `scripts/hud.gd`: on-screen UI.
 

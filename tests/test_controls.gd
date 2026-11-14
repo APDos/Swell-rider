@@ -1,10 +1,15 @@
 extends SceneTree
-## Scripted-input checks on the controls, using the real input actions.
+## Checks on the controls. Player input goes in as real touch events through
+## scripts/touch.gd (left thumb points the nose, right thumb pumps), so these
+## test what a thumb on the phone actually does. Pump timing checks use
+## scripted riders (rider.aim / rider.pump) for exact hold lengths.
 ##
 ##   godot --headless --fixed-fps 60 --path . -s res://tests/test_controls.gd
 
 var _failures := 0
 var main: Node
+var _left := Vector2.ZERO    # where the left thumb goes down (view px)
+var _right := Vector2.ZERO   # where the right thumb goes down
 
 
 func _initialize() -> void:
@@ -14,20 +19,25 @@ func _initialize() -> void:
 func _run() -> void:
 	main = load("res://main.tscn").instantiate()
 	root.add_child(main)
+	await physics_frame
+	var view: Vector2 = main.get_viewport().get_visible_rect().size
+	_left = Vector2(view.x * 0.2, view.y * 0.6)
+	_right = Vector2(view.x * 0.8, view.y * 0.6)
 	await _held_up_air_lands_clean()
-	await _tap_restart_does_not_reset()
-	await _hold_restart_resets()
-	await _carve_down_is_not_a_pump()
-	await _pump_key_drives_then_rises()
+	await _corner_tap_does_not_reset()
+	await _corner_hold_resets()
+	await _tap_after_wipeout_paddles_out()
+	await _pointing_down_is_not_a_pump()
+	await _right_thumb_pumps()
+	await _pump_drives_then_rises()
 	await _pump_tap_is_only_a_flick()
+	await _pump_hold_uses_up_stroke()
 	await _long_hold_settles_lower()
 	await _no_input_holds_height()
-	await _pump_hold_uses_up_stroke()
-	await _hold_down_rides_out_front()
-	await _left_alone_is_a_stall()
-	await _cutback_points_at_barrel()
+	await _pointing_down_rides_out_front()
+	await _straight_back_is_a_stall()
+	await _reverse_c_cuts_back()
 	await _rebound_off_whitewater()
-	await _touch_controls()
 	if _failures == 0:
 		print("PASS test_controls")
 		quit(0)
@@ -36,19 +46,95 @@ func _run() -> void:
 		quit(1)
 
 
+# ---- touch helpers ---------------------------------------------------------
+
+## Touches arrive in window pixels and Godot maps them into the game's view
+## (the stretch), so tests give view positions and convert them here.
+func _win(pos: Vector2) -> Vector2:
+	return main.get_viewport().get_final_transform() * pos
+
+
+func _touch(index: int, pos: Vector2, pressed: bool) -> void:
+	var e := InputEventScreenTouch.new()
+	e.index = index
+	e.position = _win(pos)
+	e.pressed = pressed
+	Input.parse_input_event(e)
+
+
+func _drag(index: int, pos: Vector2) -> void:
+	var e := InputEventScreenDrag.new()
+	e.index = index
+	e.position = _win(pos)
+	Input.parse_input_event(e)
+
+
+## Left thumb down at _left, then pointing in screen direction dir (y down),
+## pushed 60 px.
+func _thumb_down() -> void:
+	_touch(0, _left, true)
+
+
+func _point(dir: Vector2) -> void:
+	_drag(0, _left + dir.normalized() * 60.0)
+
+
+func _thumb_up() -> void:
+	_touch(0, _left, false)
+
+
+## Point in dir until cond is true (or max_frames). Returns whether it came true.
+func _point_until(dir: Vector2, cond: Callable, max_frames: int) -> bool:
+	_point(dir)
+	for i in max_frames:
+		await physics_frame
+		if cond.call():
+			return true
+	return false
+
+
+func _hold_point(dir: Vector2, frames: int) -> void:
+	_point(dir)
+	for i in frames:
+		await physics_frame
+
+
 func _fresh() -> void:
+	_thumb_up()
+	_touch(1, _right, false)
+	_touch(2, _corner(), false)
+	await physics_frame   # injected touches arrive on the next frame: let the releases land first
 	seed(99)
 	main.rider = null
 	main._reset()
-	for a in ["carve_up", "carve_down", "spin_left", "spin_right", "stall", "pump", "restart"]:
-		Input.action_release(a)
 	await physics_frame
 
 
-## After pumping up speed, holding up to hit the lip, and still holding it in
-## the air, must not spin
-## you at all. (Without the latch it gives a random spin: an accidental 360 or
-## an under-rotated wipeout, depending on speed.)
+## Player-driven ride with the curl curl_gap metres behind, at a steady speed mid-face.
+func _ride_setup(curl_gap: float) -> void:
+	await _fresh()
+	var s = main.surfer
+	s.t = 0.6
+	s.v = 14.0
+	s.phi = 0.0
+	s.turn_rate = 0.0
+	main.wave.curl_x = s.x - curl_gap
+	await physics_frame
+
+
+const UP := Vector2(0, -1)
+const DOWN := Vector2(0, 1)
+const LEFT := Vector2(-1, 0)    # toward the curl
+const RIGHT := Vector2(1, 0)    # down the line
+const UP_LEFT := Vector2(-1, -1)
+const UP_RIGHT := Vector2(1, -1)
+const DOWN_LEFT := Vector2(-1, 1)
+
+
+# ---- tests -----------------------------------------------------------------
+
+## Pump up speed, point up to hit the lip and keep pointing up in the air: that
+## must not spin you (spinning is the thumb sideways).
 func _held_up_air_lands_clean() -> void:
 	await _fresh()
 	var s = main.surfer
@@ -63,7 +149,8 @@ func _held_up_air_lands_clean() -> void:
 	for i in 240:
 		await physics_frame
 	main.rider = null
-	Input.action_press("carve_up")
+	_thumb_down()
+	_point(UP)
 	for i in 600:
 		await physics_frame
 		if s.state == s.AIR:
@@ -74,66 +161,103 @@ func _held_up_air_lands_clean() -> void:
 			break
 		if wipe[0] != "":
 			break
-	Input.action_release("carve_up")
+	_thumb_up()
 	s.wiped_out.disconnect(on_wipe)
 	if not launched:
-		_fail("holding up never launched an air (state %d, v %.1f)" % [s.state, s.v])
+		_fail("pointing up never launched an air (state %d, v %.1f)" % [s.state, s.v])
 	elif not landed:
-		_fail("held-up air did not land clean: '%s'" % wipe[0])
+		_fail("an air pointing straight up did not land clean: '%s'" % wipe[0])
 	elif max_spin > 0.01:
-		_fail("holding up through takeoff spun the surfer %.0f degrees" % rad_to_deg(max_spin))
+		_fail("pointing up through takeoff spun the surfer %.0f degrees" % rad_to_deg(max_spin))
 
 
-func _tap_restart_does_not_reset() -> void:
+func _corner() -> Vector2:
+	var view: Vector2 = main.get_viewport().get_visible_rect().size
+	return Vector2(view.x - 40.0, 40.0)
+
+
+func _corner_tap_does_not_reset() -> void:
 	await _fresh()
 	for i in 60:
 		await physics_frame
 	var x: float = main.surfer.x
-	Input.action_press("restart")
+	_touch(2, _corner(), true)
 	for i in 5:
 		await physics_frame
-	Input.action_release("restart")
+	_touch(2, _corner(), false)
 	await physics_frame
 	if main.surfer.x < x:
-		_fail("a short tap of restart reset the ride")
+		_fail("a short tap on the restart corner reset the ride")
 
 
-func _hold_restart_resets() -> void:
+func _corner_hold_resets() -> void:
 	await _fresh()
 	for i in 60:
 		await physics_frame
-	Input.action_press("restart")
+	_touch(2, _corner(), true)
 	for i in 40:
 		await physics_frame
-	Input.action_release("restart")
+	_touch(2, _corner(), false)
 	if main.ride_time > 0.5:
-		_fail("holding restart for 0.66 s did not reset (ride_time %.2f)" % main.ride_time)
+		_fail("holding the restart corner for 0.66 s did not reset (ride_time %.2f)" % main.ride_time)
+
+
+func _tap_after_wipeout_paddles_out() -> void:
+	await _fresh()
+	main.surfer._wipeout("test")
+	await physics_frame
+	_touch(1, _right, true)
+	await physics_frame
+	await physics_frame
+	_touch(1, _right, false)
+	if main.state != main.PLAYING:
+		_fail("a tap after a wipeout should paddle back out")
+
+
+func _pointing_down_is_not_a_pump() -> void:
+	await _fresh()
+	_thumb_down()
+	var pushed := false
+	_point(DOWN)
+	for i in 40:
+		await physics_frame
+		pushed = pushed or main.surfer.pump_phase != main.surfer.PUMP_IDLE
+	_thumb_up()
+	if pushed:
+		_fail("pointing down started a pump; steering and pumping should be separate")
+
+
+## The right thumb is the pump: hold, lift, one pump.
+func _right_thumb_pumps() -> void:
+	await _pump_setup()
+	var s = main.surfer
+	main.rider = null
+	var pumps := [0]
+	var count := func(_q, _g): pumps[0] += 1
+	s.pumped.connect(count)
+	_touch(1, _right, true)
+	for i in 18:
+		await physics_frame
+	_touch(1, _right, false)
+	for i in 30:
+		await physics_frame
+	s.pumped.disconnect(count)
+	if pumps[0] != 1:
+		_fail("holding then lifting the right thumb should be one pump (got %d)" % pumps[0])
 
 
 ## Pump-test setup: hold a steady line high on the face with the curl far
-## behind, so the pump key is the only thing changing speed.
+## behind, so the pump is the only thing changing speed.
 func _pump_setup() -> void:
 	await _fresh()
-	main.rider = main.Autopilot.new("none")   # steers a steady line; we press pump ourselves
+	main.rider = main.Autopilot.new("none")   # steers a steady line; we pump ourselves
 	main.wave.curl_x = -1000.0
 	main.surfer.t = 0.7
 	main.surfer.v = 10.0
 	await physics_frame
 
 
-func _carve_down_is_not_a_pump() -> void:
-	await _fresh()
-	Input.action_press("carve_down")
-	var pushed := false
-	for i in 40:
-		await physics_frame
-		pushed = pushed or main.surfer.pump_phase != main.surfer.PUMP_IDLE
-	Input.action_release("carve_down")
-	if pushed:
-		_fail("holding carve-down started a pump; steering and pumping should be separate")
-
-
-func _pump_key_drives_then_rises() -> void:
+func _pump_drives_then_rises() -> void:
 	await _pump_setup()
 	var s = main.surfer
 	var pumps := [0]
@@ -184,10 +308,10 @@ func _pump_hold_uses_up_stroke() -> void:
 			bogged = true
 			break
 	if not bogged:
-		_fail("holding the pump key should eventually use up the leg stroke")
+		_fail("holding the pump should eventually use up the leg stroke")
 
 
-## Holding the key a long time: the drive uses one leg stroke of drop, then the
+## Holding the pump a long time: the drive uses one leg stroke of drop, then the
 ## board flattens out on that lower line. You chose that line, so it stays put
 ## while held and after release (no creeping or snapping back up), and it isn't
 ## the flats either.
@@ -219,7 +343,7 @@ func _long_hold_settles_lower() -> void:
 		_fail("releasing after a long hold should not carve you back up to the start (%.2f, released at %.2f, now %.2f)" % [t0, t_released, s.t])
 
 
-## With no input at all the board trims across at the height it's at: nothing
+## With no thumb down the board trims across at the height it's at: nothing
 ## pushes it up toward the lip or down to the flats.
 func _no_input_holds_height() -> void:
 	await _pump_setup()
@@ -235,142 +359,98 @@ func _no_input_holds_height() -> void:
 		_fail("riding with no input should hold its height (%.2f -> %.2f)" % [t0, s.t])
 
 
-## A player who isn't touching the carve keys.
-class NoSteer:
-	func steer(_surfer) -> float:
-		return 0.0
-	func pump(_surfer) -> float:
-		return 0.0
-
-
-## Player-driven ride with the curl curl_gap metres behind, at a steady speed mid-face.
-func _ride_setup(curl_gap: float) -> void:
-	await _fresh()
-	var s = main.surfer
-	s.t = 0.6
-	s.v = 14.0
-	s.phi = 0.0
-	s.turn_rate = 0.0
-	main.wave.curl_x = s.x - curl_gap
-	await physics_frame
-
-
-func _press(actions: Array, frames: int) -> void:
-	for a in actions:
-		Input.action_press(a)
-	for i in frames:
-		await physics_frame
-	for a in actions:
-		Input.action_release(a)
-
-
-## No guardrail at the trough: holding down carves you past it and out onto the
-## flat water in front of the wave, until you've left the wave behind.
-func _hold_down_rides_out_front() -> void:
+## No guardrail at the trough: pointing down carves you past it and out onto
+## the flat water in front of the wave, until you've left the wave behind.
+func _pointing_down_rides_out_front() -> void:
 	await _ride_setup(60.0)
 	var s = main.surfer
 	var reason := [""]
 	var on_wipe := func(r): reason[0] = r
 	s.wiped_out.connect(on_wipe)
 	var t_min: float = s.t
-	Input.action_press("carve_down")
+	_thumb_down()
+	_point(DOWN)
 	for i in 240:
 		await physics_frame
 		t_min = minf(t_min, s.t)
 		if reason[0] != "":
 			break
-	Input.action_release("carve_down")
+	_thumb_up()
 	s.wiped_out.disconnect(on_wipe)
 	if t_min > -0.2:
-		_fail("holding down should ride out in front of the trough (lowest t %.2f)" % t_min)
+		_fail("pointing down should ride out in front of the trough (lowest t %.2f)" % t_min)
 	if reason[0] != "Rode off the front of the wave":
 		_fail("riding far out in front should end the ride by leaving the wave (got '%s')" % reason[0])
 
 
-## The ← key presses both "stall" and "spin_left", like the real keyboard binding.
-const LEFT := ["stall", "spin_left"]
-const RIGHT := ["spin_right"]
-
-
-## Hold keys until cond is true (or max_frames). Returns whether it came true.
-func _hold_until(actions: Array, cond: Callable, max_frames: int) -> bool:
-	for a in actions:
-		Input.action_press(a)
-	var ok := false
-	for i in max_frames:
-		await physics_frame
-		if cond.call():
-			ok = true
-			break
-	for a in actions:
-		Input.action_release(a)
-	return ok
-
-
-## Riding down the line, ← (the arrow behind you) on its own digs the tail in.
-func _left_alone_is_a_stall() -> void:
+## Pointing straight behind you with the board running level sits you back on
+## the tail: the stall, not a turn.
+func _straight_back_is_a_stall() -> void:
 	await _ride_setup(60.0)
 	var s = main.surfer
-	await _press(LEFT, 20)
+	_thumb_down()
+	await _hold_point(LEFT, 20)
+	_thumb_up()
 	if s.facing < 0.0:
-		_fail("← on its own should stall, not turn you around")
+		_fail("pointing straight back from a level board should stall, not turn you around")
 	if s.tail_dig < 0.5:
-		_fail("← on its own should dig the tail in (dig %.2f)" % s.tail_dig)
+		_fail("pointing straight back should dig the tail in (dig %.2f)" % s.tail_dig)
 
 
-## ← + ↑ drives the nose up past vertical and around to point at the barrel,
-## only while held: let go part way and the board stays where it got to. Once
-## you face the barrel, → is the arrow behind you: on its own it stalls, ← no
-## longer does. → + ↑ drives you back down the line: a Cutback.
-func _cutback_points_at_barrel() -> void:
+## The cutback is a reverse-C sweep of the thumb: up, up-back, back, down-back.
+## The nose follows it up and round to point at the barrel, with no stall on the
+## way (straight back mid-sweep keeps the turn going). Then, facing the barrel,
+## straight back (now →) stalls, and a forward sweep (up, up-right, right) takes
+## you back down the line: a Cutback.
+func _reverse_c_cuts_back() -> void:
 	await _ride_setup(60.0)
 	var s = main.surfer
 	var tricks := []
-	var on_trick := func(n, _p): tricks.append(n)
-	s.trick_landed.connect(on_trick)
-	# Part way, then let go: nothing finishes the turn for you.
-	await _press(LEFT + ["carve_up"], 18)
-	var phi_part: float = s.phi
-	for i in 10:
-		await physics_frame
-	if s.facing < 0.0 or s.phi < phi_part - 0.3:
-		_fail("letting go part way through should leave the board where it got to (phi %.2f -> %.2f, facing %d)" % [phi_part, s.phi, int(s.facing)])
-	await _ride_setup(60.0)
 	var why := [""]
+	var on_trick := func(n, _p): tricks.append(n)
 	var on_wipe := func(r): why[0] = "%s (t=%.2f v=%.1f facing %d phi %.2f)" % [r, s.t, s.v, int(s.facing), s.phi]
+	s.trick_landed.connect(on_trick)
 	s.wiped_out.connect(on_wipe)
-	var turned := await _hold_until(LEFT + ["carve_up"], func(): return s.facing < 0.0, 120)
-	if s.tail_dig > 0.3:
-		_fail("← + ↑ shouldn't also stall (dig %.2f)" % s.tail_dig)
-	await _press(LEFT, 20)   # ← is now the way you're going
+	var max_dig := 0.0
+	_thumb_down()
+	for dir in [UP, UP_LEFT, LEFT, DOWN_LEFT]:
+		_point(dir)
+		for i in 12:
+			await physics_frame
+			max_dig = maxf(max_dig, s.tail_dig)
+	var turned: bool = s.facing < 0.0
 	var x1: float = s.x
-	for i in 10:
-		await physics_frame
+	await _hold_point(LEFT, 30)     # ← is now the way you're going: level out toward the barrel
 	if not turned or s.x >= x1:
-		_fail("← + ↑ should turn the board to point at the barrel and ride toward it (turned %s)" % turned)
+		_fail("a reverse-C sweep should turn the board to point at the barrel and ride toward it (facing %d)" % int(s.facing))
+	if max_dig > 0.3:
+		_fail("the reverse-C sweep shouldn't stall on the way round (tail dig reached %.2f)" % max_dig)
 	if s.tail_dig > 0.3:
-		_fail("facing the barrel, ← shouldn't stall any more (dig %.2f)" % s.tail_dig)
-	await _press(RIGHT, 20)
+		_fail("facing the barrel, pointing at it shouldn't stall (dig %.2f)" % s.tail_dig)
+	await _hold_point(RIGHT, 20)
 	if s.facing > 0.0:
-		_fail("facing the barrel, → on its own should stall, not turn you")
+		_fail("facing the barrel with the board level, pointing straight back (→) should stall, not turn you")
 	elif s.tail_dig < 0.5:
-		_fail("facing the barrel, → on its own should dig the tail in (dig %.2f)" % s.tail_dig)
-	var back := await _hold_until(RIGHT + ["carve_up"], func(): return s.facing > 0.0, 120)
-	for i in 20:
-		await physics_frame
+		_fail("facing the barrel, pointing straight back (→) should dig the tail in (dig %.2f)" % s.tail_dig)
+	for dir in [UP, UP_RIGHT]:
+		await _hold_point(dir, 12)
+	var back := await _point_until(RIGHT, func(): return s.facing > 0.0, 60)
+	await _hold_point(RIGHT, 20)
+	_thumb_up()
 	s.trick_landed.disconnect(on_trick)
 	s.wiped_out.disconnect(on_wipe)
 	if not back:
-		_fail("→ + ↑ should drive you back down the line")
+		_fail("a forward sweep (up, up-right, right) should take you back down the line")
 	if not "Cutback" in tricks:
 		_fail("turning to face the barrel and back down the line should score a Cutback (tricks %s)" % [tricks])
 	if why[0] != "":
 		_fail("an open-water cutback shouldn't end the ride: %s" % why[0])
 
 
-## Cut back low, aim at the whitewater, and drive the turn off it yourself:
-## the foam stops you, then throws you out ahead of the curl once you've come
-## around (a Roundhouse Cutback). Hit it and don't turn, and it buries you.
+## Cut back low (sweep down and back), aim at the whitewater, and sweep the
+## turn off it yourself: the foam stops you, then throws you out ahead of the
+## curl once you've come around (a Roundhouse Cutback). Ride into it and don't
+## turn, and it buries you.
 func _rebound_off_whitewater() -> void:
 	await _ride_setup(14.0)
 	var s = main.surfer
@@ -380,10 +460,15 @@ func _rebound_off_whitewater() -> void:
 	var on_wipe := func(r): reason[0] = r
 	s.trick_landed.connect(on_trick)
 	s.wiped_out.connect(on_wipe)
-	await _hold_until(LEFT + ["carve_down"], func(): return s.facing < 0.0, 90)
-	await _press(LEFT + ["carve_up"], 30)       # aim up at the foam
-	await _hold_until(RIGHT + ["carve_up"], func(): return s.facing > 0.0, 90)
-	await _press(RIGHT, 60)                     # level out and get going
+	_thumb_down()
+	await _hold_point(DOWN, 10)
+	await _point_until(DOWN_LEFT, func(): return s.facing < 0.0, 90)
+	await _hold_point(UP_LEFT, 30)            # aim up at the foam
+	for dir in [UP]:
+		await _hold_point(dir, 8)
+	await _point_until(UP_RIGHT, func(): return s.facing > 0.0, 90)
+	await _hold_point(RIGHT, 60)              # level out and get going
+	_thumb_up()
 	s.trick_landed.disconnect(on_trick)
 	s.wiped_out.disconnect(on_wipe)
 	if not "Roundhouse Cutback" in tricks:
@@ -396,87 +481,25 @@ func _rebound_off_whitewater() -> void:
 	await _ride_setup(14.0)
 	reason[0] = ""
 	s.wiped_out.connect(on_wipe)
-	await _hold_until(LEFT + ["carve_down"], func(): return s.facing < 0.0, 90)
-	await _press(LEFT, 180)
+	_thumb_down()
+	await _hold_point(DOWN, 10)
+	await _point_until(DOWN_LEFT, func(): return s.facing < 0.0, 90)
+	await _hold_point(LEFT, 180)
+	_thumb_up()
 	s.wiped_out.disconnect(on_wipe)
 	if reason[0] == "":
 		_fail("riding into the whitewater facing back and never turning off it should end the ride")
 
 
-## Touches arrive in window pixels and Godot maps them into the game's view
-## (the stretch), so tests give view positions and convert them here.
-func _win(pos: Vector2) -> Vector2:
-	return main.get_viewport().get_final_transform() * pos
+## A player with no thumb on the stick.
+class NoSteer:
+	func aim(_surfer) -> Vector2:
+		return Vector2.ZERO
+	func pump(_surfer) -> float:
+		return 0.0
 
 
-func _touch(index: int, pos: Vector2, pressed: bool) -> void:
-	var e := InputEventScreenTouch.new()
-	e.index = index
-	e.position = _win(pos)
-	e.pressed = pressed
-	Input.parse_input_event(e)
-
-
-func _drag(index: int, pos: Vector2) -> void:
-	var e := InputEventScreenDrag.new()
-	e.index = index
-	e.position = _win(pos)
-	Input.parse_input_event(e)
-
-
-## The phone controls (scripts/touch.gd) with real touch events: the left thumb
-## steers through the same actions as the keys (up-back drives a cutback, back
-## alone stalls), the right thumb pumps, and both work at once.
-func _touch_controls() -> void:
-	var touch = main.TouchScript.new()
-	touch.main = main
-	main.add_child(touch)
-	await _ride_setup(60.0)
-	var s = main.surfer
-	var view: Vector2 = main.get_viewport().get_visible_rect().size
-	var left := Vector2(view.x * 0.2, view.y * 0.6)
-	var right := Vector2(view.x * 0.8, view.y * 0.6)
-	# Back (toward the curl) alone: the stall.
-	_touch(0, left, true)
-	_drag(0, left + Vector2(-90, 0))
-	for i in 20:
-		await physics_frame
-	if s.tail_dig < 0.5 or s.facing < 0.0:
-		_fail("touch: dragging back alone should stall (dig %.2f, facing %d)" % [s.tail_dig, int(s.facing)])
-	# A short, sloppy up-back drag (about 30° above back, 40 px) is still a
-	# full-strength cutback, not a half-stall: the stick snaps to 8 directions.
-	_touch(0, left, false)   # lift and touch again, so the stick re-centres under the thumb
-	_touch(0, left, true)
-	_drag(0, left + Vector2(-35, -20))
-	for i in 3:
-		await physics_frame
-	if Input.get_action_strength("carve_up") < 0.99 or Input.get_action_strength("spin_left") < 0.99:
-		_fail("touch: a short up-back drag should be full up + full back (up %.2f, back %.2f)" % [Input.get_action_strength("carve_up"), Input.get_action_strength("spin_left")])
-	# Up-back: drive a cutback, while the other thumb pumps.
-	_drag(0, left + Vector2(-90, -90))
-	_touch(1, right, true)
-	var pumped: bool = false
-	var turned := false
-	for i in 90:
-		await physics_frame
-		pumped = pumped or Input.is_action_pressed("pump")
-		if s.facing < 0.0:
-			turned = true
-			break
-	_touch(1, right, false)
-	_touch(0, left, false)
-	await physics_frame
-	if not turned:
-		_fail("touch: dragging up and back should drive the board round to face the barrel")
-	if not pumped:
-		_fail("touch: holding the right side should press pump, alongside the stick")
-	if Input.is_action_pressed("pump") or Input.is_action_pressed("carve_up") or Input.is_action_pressed("stall"):
-		_fail("touch: lifting both thumbs should release every action")
-	touch.queue_free()
-	await physics_frame
-
-
-## Wraps a rider: same steering, but holds the pump key for hold_s seconds.
+## Wraps a rider: same aim, but holds the pump for hold_s seconds.
 class PumpHold:
 	var inner
 	var hold_s: float
@@ -484,8 +507,8 @@ class PumpHold:
 	func _init(rider, hold := 10.0) -> void:
 		inner = rider
 		hold_s = hold
-	func steer(surfer) -> float:
-		return inner.steer(surfer)
+	func aim(surfer) -> Vector2:
+		return inner.aim(surfer)
 	func pump(_surfer) -> float:
 		_t += 1.0 / Engine.physics_ticks_per_second
 		return 1.0 if _t <= hold_s else 0.0

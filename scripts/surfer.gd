@@ -6,19 +6,18 @@ extends Node3D
 ## Speed comes from two places, as in real surfing:
 ## - The wave: gravity on the face, plus a push from the breaking water that is
 ##   strongest in the pocket. On its own this isn't quite enough to keep up.
-## - Pumping, on its own key: one pump is a down-and-up S-turn high on the face.
+## - Pumping (the right thumb): one pump is a down-and-up S-turn high on the face.
 ##   Hold to drop and drive down the face, release to turn off the bottom of
 ##   the drop (that's where the speed comes from) and carve back up to the
 ##   height you started at. See _pump_accel below.
-## Steering (carve up/down) only chooses your line; it isn't part of the pump.
-## The tail stall (stall action, toward the curl) digs the tail in: water drag
-## that grows with speed squared, so it brakes hard when you're fast.
-## Steering: the arrows point the nose. ↑/↓ carve up/down the face. The arrow
-## pointing behind you (← riding down the line, → once you face the curl) is
-## the stall on its own; with ↑/↓ it drives the nose up (or down) past vertical
-## and around toward it: a cutback, or back down the line. Nothing turns you
-## unless you hold it. The whitewater stops you and, once you've turned
-## yourself back around in it, throws you forward (the rebound).
+## Steering (the left thumb) points the nose: aim is the direction the thumb
+## points (x down the line, y up the face). Ahead of the board, the nose carves
+## round to it, short of vertical. Behind the board, the nose drives on round
+## past vertical toward it: a cutback (sweep up and round), or back down the
+## line. Pointing straight behind you while the board runs level sits you back
+## on the tail instead: the stall, water drag that grows with speed squared.
+## Nothing turns you unless you point. The whitewater stops you and, once
+## you've turned yourself back around in it, throws you forward (the rebound).
 ## Nothing holds you on the face: carve down past the trough and you ride out
 ## onto the flat water in front of the wave, until you've gone too far to get back.
 ##
@@ -45,7 +44,10 @@ const MAX_PHI := 1.35       # rad: steepest normal carve up/down the face (a tur
 const CUTBACK_TURN := 5.5     # rad/s the nose comes around at in a cutback (a normal carve is TURN)
 const CARVE_DRAG := 0.03      # rail drag while turning around: decel = this * turn rate * v
 const CUTBACK_LIFT := 0.3     # near vertical in a turn-around, how much of the motion goes up/down the face: the board is laid over on its rail, so the arc is wide along the line and shallow on the face
-const AIM_GAIN := 4.0         # 1/s: how eagerly the nose swings to an aimed direction (→, →+↑/↓)
+const AIM_GAIN := 4.0         # per rad off target: how eagerly the nose swings to where you point
+const AIM_DEAD := 0.1         # thumb push below this is no steering
+const STALL_CONE := 0.52      # rad (30°): pointing this close to straight behind you is the stall...
+const STALL_PHI := 0.5        # ...as long as the nose isn't already swinging round (|phi| under this)
 const FOAM_HOLD := 1.0        # m behind the curl the whitewater shoves you along at, rather than letting you plough deeper
 const FOAM_MAX := 2.0         # s in the whitewater before it buries you
 const FOAM_DRAG := 1.5        # 1/s: pushing back into the whitewater stops you (decel = this * v)
@@ -124,7 +126,9 @@ var _wipe_vel := Vector3.ZERO
 var _wipe_spin := Vector3.ZERO
 
 var facing := 1.0         # +1 riding down the line (right), -1 turned back toward the curl
-var cutting := false      # holding the back arrow with ↑/↓: driving the nose around past vertical
+var cutting := false      # pointing behind the board: driving the nose round past vertical
+var _aim := Vector2.ZERO
+var _spin_latched := false   # the thumb was sideways at takeoff: no spin until it's let go
 var _cut_back := false    # turned to face the curl since you last rode down the line
 var _rebounded := false   # this cutback bounced off the whitewater
 var _rebound_time := -10.0
@@ -214,46 +218,50 @@ func _save_prev() -> void:
 	_p_wipe_rot = _wipe_rot
 
 
-## One fixed physics tick. steer is -1..1 (carve down/up on the face, spin in
-## the air). stall is 0..1 (weight on the tail). pump is 0..1 (the pump key or
-## trigger; how hard it's held sets the push force). side is -1..1: ← (toward
-## the curl) or → (toward the shoulder); with a carve it turns you around.
-func step(dt: float, steer: float, stall := 0.0, pump := 0.0, side := 0.0) -> void:
+## One fixed physics tick. aim is where the left thumb points, in screen terms:
+## x toward down the line (right), y up the face; its length (0..1) is how
+## hard. pump is 0..1 (the right thumb).
+func step(dt: float, aim := Vector2.ZERO, pump := 0.0) -> void:
 	_save_prev()
 	_clock += dt
-	_steer = steer
+	_aim = aim.limit_length(1.0)
 	match state:
-		RIDING: _step_riding(dt, steer, stall, pump, side)
-		AIR: _step_air(dt, steer)
+		RIDING: _step_riding(dt, _aim, pump)
+		AIR: _step_air(dt, _aim)
 		WIPEOUT: _step_wipeout(dt)
 
 
-func _step_riding(dt: float, steer: float, stall: float, pump: float, side: float) -> void:
+func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 	var d: float = x - wave.curl_x
 	var slope: float = wave.slope_at(x, t)
 	var flen: float = wave.face_length(x)
 	var in_foam := d < 0.0
-
-	# The arrows point the nose. "back" is the arrow pointing behind you.
-	var back := clampf(-side * facing, 0.0, 1.0)
-	var ahead := clampf(side * facing, 0.0, 1.0)
-	cutting = back > 0.5 and absf(steer) > 0.3
-	# The back arrow on its own is the stall (the stall action is ←, so when
-	# you face the curl it's → instead). With ↑/↓ it's turning you, not stalling.
-	stall = (stall if facing > 0.0 else back) if not cutting else 0.0
 	if in_foam and facing < 0.0 and _foam_time == 0.0:
 		_rebound_time = _clock   # hit the whitewater facing back: you've got a moment to turn off it
 
-	var target_rate: float
-	if cutting:
-		target_rate = signf(steer) * CUTBACK_TURN * absf(steer)   # drive the nose round toward the back arrow
-	elif ahead > 0.5:
-		var aim := signf(steer) * PI / 4.0 if absf(steer) > 0.3 else 0.0   # → aims level, →+↑/↓ 45° up/down
-		# Coming out of a turn-around the nose keeps the cutback's pace.
-		var cap := CUTBACK_TURN if absf(phi) > MAX_PHI else TURN
-		target_rate = clampf((aim - phi) * AIM_GAIN, -cap, cap)
-	else:
-		target_rate = steer * TURN
+	# Point the nose. want is the thumb's direction measured from the way the
+	# board faces: 0 = ahead, + up the face, ±PI = straight behind you.
+	var strength := aim.length()
+	var steering := strength > AIM_DEAD
+	var stall := 0.0
+	var target_rate := 0.0
+	cutting = false
+	if steering:
+		var want := atan2(aim.y, aim.x * facing)
+		if absf(want) <= PI / 2.0:
+			# Ahead of you: carve round to it, capped short of vertical. Coming
+			# out of a turn-around the nose keeps the cutback's pace.
+			var cap := CUTBACK_TURN if absf(phi) > MAX_PHI else TURN
+			target_rate = clampf((clampf(want, -MAX_PHI, MAX_PHI) - phi) * AIM_GAIN, -1.0, 1.0) * cap * strength
+		elif absf(want) > PI - STALL_CONE and absf(phi) < STALL_PHI:
+			stall = strength   # straight behind you with the board running level: sit back on the tail
+		else:
+			# Behind you: drive the nose round past vertical toward it. Up-back
+			# swings up and over, down-back low; straight back keeps a turn going.
+			var dir := signf(want) if absf(want) <= PI - STALL_CONE else (signf(phi) if phi != 0.0 else 1.0)
+			cutting = true
+			target_rate = dir * CUTBACK_TURN * strength
+	_steer = clampf(target_rate / TURN, -1.0, 1.0)   # for drawing: lean and spray
 	# Turns build up and ease off rather than switching on and off instantly.
 	turn_rate = lerpf(turn_rate, target_rate, 1.0 - exp(-TURN_RESPONSE * dt))
 	var was_carving := absf(phi) <= MAX_PHI
@@ -269,7 +277,7 @@ func _step_riding(dt: float, steer: float, stall: float, pump: float, side: floa
 		if facing > 0.0 and in_foam and _clock - _rebound_time < REBOUND_GRACE:
 			_rebounded = true
 	var turning_around := cutting or absf(phi) > MAX_PHI
-	if absf(steer) < 0.1 and ahead < 0.5:
+	if not steering:
 		phi = lerpf(phi, 0.0, 1.0 - exp(-RECENTER * dt))
 	if not turning_around and absf(phi) > MAX_PHI:
 		phi = move_toward(phi, signf(phi) * MAX_PHI, TURN * dt)
@@ -500,12 +508,18 @@ func _launch() -> void:
 	barrel_depth = 0.0
 	air_h = 0.0
 	air_vy = 3.0 + v * sin(heading()) * 0.35
+	_spin_latched = absf(_aim.x) > 0.3
 	spin = 0.0
 	_air_time = 0.0
 	t = 1.0
 
 
-func _step_air(dt: float, steer: float) -> void:
+## In the air, the thumb sideways spins you. If it was already sideways at
+## takeoff (coming off a turn), it doesn't spin you until you let it go.
+func _step_air(dt: float, aim: Vector2) -> void:
+	if absf(aim.x) < 0.3:
+		_spin_latched = false
+	var steer := 0.0 if _spin_latched else -aim.x
 	_air_time += dt
 	x += facing * v * maxf(cos(phi), 0.45) * dt
 	air_vy -= AIR_GRAVITY * dt

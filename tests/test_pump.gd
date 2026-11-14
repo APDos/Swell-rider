@@ -145,7 +145,7 @@ func _pump_cycle(quality: float) -> Dictionary:
 	surfer.quality_override = quality
 	var t_min: float = surfer.t
 	for i in 75:   # 0.25 s drive, then 1 s to turn and rise
-		surfer.step(DT, 0.0, 0.0, 1.0 if i < 15 else 0.0)
+		surfer.step(DT, Vector2.ZERO, 1.0 if i < 15 else 0.0)
 		t_min = minf(t_min, surfer.t)
 	surfer.quality_override = -1.0
 	return {"dv": surfer.v - 10.0, "t0": 0.7, "t_min": t_min, "t_end": surfer.t}
@@ -169,8 +169,8 @@ func _stall_decel(v0: float) -> float:
 		surfer.phi = 0.0
 		surfer.v = v0
 		surfer.tail_dig = stall   # already dug in: measure the drag, not the weight shift
-		surfer.step(DT, 0.0, stall)
-		surfer.step(DT, 0.0, stall)
+		surfer.step(DT, Vector2(-stall, 0.0))   # thumb straight back, board level: the stall
+		surfer.step(DT, Vector2(-stall, 0.0))
 		dv.append(surfer.v - v0)
 	return (dv[0] - dv[1]) / (2.0 * DT)
 

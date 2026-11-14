@@ -1,19 +1,26 @@
 extends CanvasLayer
-## Thumb controls for phones.
-## - Left half: a floating stick. Touch anywhere and drag to point the nose:
-##   up/down carves, toward the curl is the stall, toward the curl and up/down
-##   drives a cutback, ahead levels out. In the air, left/right spins.
+## The game's controls: thumbs on a phone.
+## - Left half: a floating stick. Touch anywhere and point where you want the
+##   nose to go. Ahead of the board it carves; behind it, the nose swings round
+##   (sweep a reverse C up and round for a cutback); straight back with the
+##   board running level is the stall. In the air, sideways spins.
 ## - Right half: hold to pump (drive), lift your thumb to turn off the bottom.
 ## - After a wipeout, a tap paddles back out. Mid-ride, hold the ↻ corner.
-## It presses the same input actions as the keyboard and gamepad, at analog
-## strength, so gameplay never knows where the input came from.
+## main.gd reads aim, pump, restart_down and consume_tap() each physics tick.
 
 const RADIUS := 80.0        # px (viewport): size of the drawn stick; the centre follows your thumb past it
 const DEADZONE := 0.15      # of RADIUS: smaller than this is no input
 const FULL := 0.45          # of RADIUS: a push this long is already full strength
 const RESTART_SIZE := Vector2(120, 100)   # the ↻ hold area, top-right corner
 
-var main   # main.gd, for its state and the safe-area insets
+var main   # main.gd, for its state
+
+## Where the left thumb points: x toward down the line (right), y up the face
+## (screen y flipped), length 0..1 for how far it's pushed.
+var aim := Vector2.ZERO
+var pump := 0.0
+var restart_down := false
+var _tapped := false
 
 var _stick_id := -1
 var _stick_origin := Vector2.ZERO
@@ -54,6 +61,13 @@ func _view_size() -> Vector2:
 	return get_viewport().get_visible_rect().size
 
 
+## True once per touch-down since the last call (main uses it to paddle out).
+func consume_tap() -> bool:
+	var was := _tapped
+	_tapped = false
+	return was
+
+
 func _in_restart(p: Vector2) -> bool:
 	var view := _view_size()
 	return p.x > view.x - _inset.size.x - RESTART_SIZE.x and p.y < _inset.position.y + RESTART_SIZE.y
@@ -63,12 +77,11 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
 		var p: Vector2 = event.position
 		if event.pressed:
-			if main.state == main.WIPEOUT or _in_restart(p):
-				# After a wipeout the press paddles back out; mid-ride main restarts
-				# once it's been held for RESTART_HOLD.
+			_tapped = true
+			if _in_restart(p):
 				if _restart_id == -1:
 					_restart_id = event.index
-					Input.action_press("restart")
+					restart_down = true   # main restarts once it's held for RESTART_HOLD
 			elif p.x < _view_size().x * 0.5:
 				if _stick_id == -1:
 					_stick_id = event.index
@@ -77,17 +90,17 @@ func _input(event: InputEvent) -> void:
 			elif _pump_id == -1:
 				_pump_id = event.index
 				_pump_pos = p
-				Input.action_press("pump")
+				pump = 1.0
 		else:
 			if event.index == _stick_id:
 				_stick_id = -1
 				_set_stick(Vector2.ZERO)
 			elif event.index == _pump_id:
 				_pump_id = -1
-				Input.action_release("pump")
+				pump = 0.0
 			elif event.index == _restart_id:
 				_restart_id = -1
-				Input.action_release("restart")
+				restart_down = false
 		_canvas.queue_redraw()
 	elif event is InputEventScreenDrag:
 		if event.index == _stick_id:
@@ -105,32 +118,15 @@ func _input(event: InputEvent) -> void:
 			_canvas.queue_redraw()
 
 
-## v: stick offset in units of RADIUS, screen y down. A thumb can't hold a
-## precise angle or a full-length push, so the stick works like the arrow keys:
-## the direction snaps to the nearest of 8 (up, up-back, back, ...; each 45°
-## wide), and a short push (FULL of the radius) is already full strength. So
-## anywhere in the up-back sector is a full cutback, never a half-stall.
+## v: stick offset in units of RADIUS, screen y down. The direction is kept
+## exactly (it's where the nose should point); a short push (FULL of the
+## radius) is already full strength.
 func _set_stick(v: Vector2) -> void:
 	var len := minf(v.length(), 1.0)
 	if len < DEADZONE:
-		v = Vector2.ZERO
+		aim = Vector2.ZERO
 	else:
-		var sector := roundi(v.angle() / (PI / 4.0))
-		var dir := Vector2.from_angle(sector * PI / 4.0)
-		dir = Vector2(roundf(dir.x), roundf(dir.y))   # (±1, 0), (0, ±1) or (±1, ±1)
-		v = dir * clampf((len - DEADZONE) / (FULL - DEADZONE), 0.0, 1.0)
-	_axis("carve_up", -v.y)
-	_axis("carve_down", v.y)
-	_axis("spin_left", -v.x)
-	_axis("stall", -v.x)       # ← is the stall key on the keyboard; the surfer decides when it applies
-	_axis("spin_right", v.x)
-
-
-func _axis(action: String, strength: float) -> void:
-	if strength > 0.0:
-		Input.action_press(action, clampf(strength, 0.0, 1.0))
-	else:
-		Input.action_release(action)
+		aim = Vector2(v.x, -v.y).normalized() * clampf((len - DEADZONE) / (FULL - DEADZONE), 0.0, 1.0)
 
 
 func _on_draw() -> void:

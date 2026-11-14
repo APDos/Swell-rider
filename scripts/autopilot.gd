@@ -1,7 +1,6 @@
 extends RefCounted
 ## Scripted rider: drives the game the way a player would, through the same
-## inputs the controls produce: steer (-1..1, carve up/down) and pump (0..1,
-## the pump key). Used by --autopilot and by tests.
+## inputs the thumbs produce: aim (where the nose should point) and pump (0..1). Used by --autopilot and by tests.
 ##
 ## Steering holds a line high in the pocket. Pumping depends on the style:
 ## - "good":   pumps on the steep upper face, steady rhythm, drives each pump
@@ -35,14 +34,15 @@ func reset() -> void:
 	_rng.seed = 7
 
 
-func steer(surfer) -> float:
+## Point the nose at a line high in the pocket, like a thumb would.
+func aim(surfer) -> Vector2:
 	if surfer.state == surfer.AIR:
-		return 0.0  # no spin: land it clean
+		return Vector2.ZERO  # no spin: land it clean
 	var target_phi: float = clampf((line_t - surfer.t) * 2.5, -0.7, 0.7)
-	return clampf((target_phi - surfer.phi) * 3.0, -1.0, 1.0)
+	return Vector2(surfer.facing * cos(target_phi), sin(target_phi))
 
 
-## Called once per physics tick, after steer().
+## Called once per physics tick, after aim().
 func pump(surfer) -> float:
 	_clock += 1.0 / Engine.physics_ticks_per_second
 	if surfer.state != surfer.RIDING or style == "none":
