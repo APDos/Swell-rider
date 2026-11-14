@@ -9,6 +9,7 @@ const WaveScript := preload("res://scripts/wave.gd")
 const SurferScript := preload("res://scripts/surfer.gd")
 const HudScript := preload("res://scripts/hud.gd")
 const Controls := preload("res://scripts/controls.gd")
+const TouchScript := preload("res://scripts/touch.gd")
 const Autopilot := preload("res://scripts/autopilot.gd")
 
 enum { PLAYING, WIPEOUT }
@@ -91,6 +92,10 @@ func _ready() -> void:
 
 	hud = HudScript.new()
 	add_child(hud)
+	if is_touch():
+		var touch = TouchScript.new()
+		touch.main = self
+		add_child(touch)
 
 	_reset()
 
@@ -176,6 +181,11 @@ func _reset() -> void:
 func _schedule_closeout() -> void:
 	var x0: float = wave.curl_x + randf_range(150.0, 280.0)
 	wave.closeout = Vector3(x0, x0 + randf_range(12.0, 24.0), 0.95)
+
+
+## Phones and tablets get the thumb controls (scripts/touch.gd).
+static func is_touch() -> bool:
+	return OS.has_feature("mobile") or DisplayServer.is_touchscreen_available()
 
 
 ## Riding: up/down carves up/down the face (the pump has its own key); left or
@@ -339,7 +349,7 @@ func _on_wipeout(reason: String) -> void:
 	state = WIPEOUT
 	best = maxf(best, score)
 	hud.set_barrel(false, 0.0, 0.0)
-	hud.show_message("WIPEOUT\n%s\n\nScore %d   ·   Best %d   ·   %.0fs ride\n\nEnter / R to paddle back out" % [reason, int(score), int(best), ride_time])
+	hud.show_message("WIPEOUT\n%s\n\nScore %d   ·   Best %d   ·   %.0fs ride\n\n%s" % [reason, int(score), int(best), ride_time, "Tap to paddle back out" if is_touch() else "Enter / R to paddle back out"])
 	if autopilot:
 		_reset()
 

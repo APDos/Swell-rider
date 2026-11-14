@@ -7,7 +7,20 @@ Side-view wave riding in Godot 4.3+. Everything (wave, surfer, HUD) is built in 
 2. In the Project Manager, click Import and pick `project.godot` in this folder.
 3. Press F5.
 
-## Controls
+## iPhone
+The game is meant for the phone: landscape, thumb controls.
+- **Left thumb**: touch anywhere on the left half and drag to point the nose. Up/down carves; toward the curl (behind you) stalls; toward the curl and up/down drives a cutback; ahead levels out. In the air, left/right spins.
+- **Right thumb**: hold anywhere on the right half to pump (drive), lift to turn off the bottom.
+- After a wipeout, tap to paddle back out. Mid-ride, hold the ↻ in the top-right corner to restart.
+
+To build it: Godot 4.7.2 with its iOS export template, and **Xcode 26** (Godot 4.7's iOS template links against the iOS 26 SDK; Xcode 16 fails at the link step). Xcode 26 needs macOS 15.6 or later. Sign in to your Apple account in Xcode > Settings > Accounts, plug in and unlock the phone, then:
+```
+godot --headless --path . --export-debug "iOS" build/ios/SwellRider.ipa
+xcrun devicectl device install app --device <device id> build/ios/SwellRider.ipa
+```
+`export_presets.cfg` has the signing team and bundle id. The icon is drawn by `tools/make_icon.gd`.
+
+## Controls (keyboard / gamepad)
 | Keyboard | Gamepad | Action |
 |---|---|---|
 | ↑ / W | Left stick up, D-pad up | Carve up the face, toward the lip (for off-the-lips and airs) |

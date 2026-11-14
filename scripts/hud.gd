@@ -13,12 +13,17 @@ var _pump_t := 0.0
 
 
 func _ready() -> void:
+	# On a phone, keep clear of the notch / Dynamic Island and the home bar.
+	var touch := OS.has_feature("mobile") or DisplayServer.is_touchscreen_available()
+	var inset := preload("res://scripts/touch.gd").safe_insets(get_viewport()) if touch else Rect2()
+	var lx := inset.position.x
+	var ty := inset.position.y
 	score_label = _mk(40)
-	score_label.position = Vector2(28, 18)
+	score_label.position = Vector2(28 + lx, 18 + ty)
 	speed_label = _mk(22)
-	speed_label.position = Vector2(30, 70)
+	speed_label.position = Vector2(30 + lx, 70 + ty)
 	pump_label = _mk(24)
-	pump_label.position = Vector2(30, 102)
+	pump_label.position = Vector2(30 + lx, 102 + ty)
 	pump_label.modulate.a = 0.0
 
 	popup_label = _mk(46, true)
@@ -53,10 +58,10 @@ func _ready() -> void:
 	var help := _mk(16)
 	help.anchor_top = 1.0
 	help.anchor_bottom = 1.0
-	help.offset_left = 28
-	help.offset_top = -44
-	help.offset_bottom = -14
-	help.text = "↑/↓ carve   Space: pump (hold to drive, release to turn up)   Arrow behind you: stall   Behind + ↑/↓: cut back around   Air ←/→: spin   Hold R: restart   Esc: quit"
+	help.offset_left = 28 + lx
+	help.offset_top = -44 - inset.size.y
+	help.offset_bottom = -14 - inset.size.y
+	help.text = "Left thumb: drag to steer (toward the curl: stall · toward the curl + up/down: cut back)   Right thumb: hold to pump, lift to turn up   Hold ↻: restart" if touch else "↑/↓ carve   Space: pump (hold to drive, release to turn up)   Arrow behind you: stall   Behind + ↑/↓: cut back around   Air ←/→: spin   Hold R: restart   Esc: quit"
 	help.modulate.a = 0.8
 
 

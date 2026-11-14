@@ -5,6 +5,7 @@ config_version=5
 
 config/name="Swell Rider"
 run/main_scene="res://main.tscn"
+config/icon="res://icon.png"
 config/features=PackedStringArray("4.3", "Forward Plus")
 
 [display]
@@ -12,7 +13,12 @@ config/features=PackedStringArray("4.3", "Forward Plus")
 window/size/viewport_width=1280
 window/size/viewport_height=720
 window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/handheld/orientation=4
 
 [rendering]
+
+renderer/rendering_method.mobile="mobile"
+textures/vram_compression/import_etc2_astc=true
 
 anti_aliasing/quality/msaa_3d=2

@@ -27,6 +27,7 @@ func _run() -> void:
 	await _left_alone_is_a_stall()
 	await _cutback_points_at_barrel()
 	await _rebound_off_whitewater()
+	await _touch_controls()
 	if _failures == 0:
 		print("PASS test_controls")
 		quit(0)
@@ -400,6 +401,70 @@ func _rebound_off_whitewater() -> void:
 	s.wiped_out.disconnect(on_wipe)
 	if reason[0] == "":
 		_fail("riding into the whitewater facing back and never turning off it should end the ride")
+
+
+## Touches arrive in window pixels and Godot maps them into the game's view
+## (the stretch), so tests give view positions and convert them here.
+func _win(pos: Vector2) -> Vector2:
+	return main.get_viewport().get_final_transform() * pos
+
+
+func _touch(index: int, pos: Vector2, pressed: bool) -> void:
+	var e := InputEventScreenTouch.new()
+	e.index = index
+	e.position = _win(pos)
+	e.pressed = pressed
+	Input.parse_input_event(e)
+
+
+func _drag(index: int, pos: Vector2) -> void:
+	var e := InputEventScreenDrag.new()
+	e.index = index
+	e.position = _win(pos)
+	Input.parse_input_event(e)
+
+
+## The phone controls (scripts/touch.gd) with real touch events: the left thumb
+## steers through the same actions as the keys (up-back drives a cutback, back
+## alone stalls), the right thumb pumps, and both work at once.
+func _touch_controls() -> void:
+	var touch = main.TouchScript.new()
+	touch.main = main
+	main.add_child(touch)
+	await _ride_setup(60.0)
+	var s = main.surfer
+	var view: Vector2 = main.get_viewport().get_visible_rect().size
+	var left := Vector2(view.x * 0.2, view.y * 0.6)
+	var right := Vector2(view.x * 0.8, view.y * 0.6)
+	# Back (toward the curl) alone: the stall.
+	_touch(0, left, true)
+	_drag(0, left + Vector2(-90, 0))
+	for i in 20:
+		await physics_frame
+	if s.tail_dig < 0.5 or s.facing < 0.0:
+		_fail("touch: dragging back alone should stall (dig %.2f, facing %d)" % [s.tail_dig, int(s.facing)])
+	# Up-back: drive a cutback, while the other thumb pumps.
+	_drag(0, left + Vector2(-90, -90))
+	_touch(1, right, true)
+	var pumped: bool = false
+	var turned := false
+	for i in 90:
+		await physics_frame
+		pumped = pumped or Input.is_action_pressed("pump")
+		if s.facing < 0.0:
+			turned = true
+			break
+	_touch(1, right, false)
+	_touch(0, left, false)
+	await physics_frame
+	if not turned:
+		_fail("touch: dragging up and back should drive the board round to face the barrel")
+	if not pumped:
+		_fail("touch: holding the right side should press pump, alongside the stick")
+	if Input.is_action_pressed("pump") or Input.is_action_pressed("carve_up") or Input.is_action_pressed("stall"):
+		_fail("touch: lifting both thumbs should release every action")
+	touch.queue_free()
+	await physics_frame
 
 
 ## Wraps a rider: same steering, but holds the pump key for hold_s seconds.
