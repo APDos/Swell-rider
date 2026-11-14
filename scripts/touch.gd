@@ -1,6 +1,6 @@
 extends CanvasLayer
 ## The game's controls: thumbs on a phone.
-## - Left half: a floating stick. Touch anywhere and point where you want the
+## - Right half: a floating stick. Touch anywhere and point where you want the
 ##   nose to go. Where you touch down is always neutral: a thumb landing on the
 ##   glass rolls 20-40 px as it flattens (seen in recorded rides), so for the
 ##   first moment the stick's centre follows it. Ahead of the board it carves; behind it, the nose swings round
@@ -10,7 +10,7 @@ extends CanvasLayer
 ##   board angles only part way toward your thumb), a long one is the full
 ##   turn. A quick move (a flick, FLICK_PX within FLICK_TICKS) is the full
 ##   turn at once, however short, until the thumb comes back to the middle.
-## - Right half: hold to pump (drive), lift your thumb to turn off the bottom.
+## - Left half: hold to pump (drive), lift your thumb to turn off the bottom.
 ## - After a wipeout, a tap paddles back out. Mid-ride, hold the ↻ corner.
 ## main.gd reads aim, pump, restart_down and consume_tap() each physics tick.
 
@@ -26,7 +26,7 @@ const RESTART_SIZE := Vector2(120, 100)   # the ↻ hold area, top-right corner
 
 var main   # main.gd, for its state
 
-## Where the left thumb points: x toward down the line (right), y up the face
+## Where the right thumb points: x toward down the line (right), y up the face
 ## (screen y flipped), length 0..1 for how far it's pushed.
 var aim := Vector2.ZERO
 var pump := 0.0
@@ -36,7 +36,7 @@ var _tapped := false
 var _stick_id := -1
 var _stick_origin := Vector2.ZERO
 var _stick_pos := Vector2.ZERO
-var _stick_down := Vector2.ZERO   # where the left thumb landed
+var _stick_down := Vector2.ZERO   # where the right thumb landed
 var _stick_down_tick := 0
 var _stick_settled := false       # past the settling moment: the centre stays put
 var _flick := false               # this push started with a quick move: full strength until the thumb is back in the middle
@@ -98,7 +98,7 @@ func _input(event: InputEvent) -> void:
 				if _restart_id == -1:
 					_restart_id = event.index
 					restart_down = true   # main restarts once it's held for RESTART_HOLD
-			elif p.x < _view_size().x * 0.5:
+			elif p.x >= _view_size().x * 0.5:   # right half steers, left half pumps
 				if _stick_id == -1:
 					_stick_id = event.index
 					_stick_origin = p

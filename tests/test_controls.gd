@@ -1,6 +1,6 @@
 extends SceneTree
 ## Checks on the controls. Player input goes in as real touch events through
-## scripts/touch.gd (left thumb points the nose, right thumb pumps), so these
+## scripts/touch.gd (right thumb points the nose, left thumb pumps), so these
 ## test what a thumb on the phone actually does. Pump timing checks use
 ## scripted riders (rider.aim / rider.pump) for exact hold lengths.
 ##
@@ -8,8 +8,8 @@ extends SceneTree
 
 var _failures := 0
 var main: Node
-var _left := Vector2.ZERO    # where the left thumb goes down (view px)
-var _right := Vector2.ZERO   # where the right thumb goes down
+var _stick_at := Vector2.ZERO    # where the steering thumb goes down (right half) (view px)
+var _pump_at := Vector2.ZERO   # where the pump thumb goes down (left half)
 
 
 func _initialize() -> void:
@@ -21,8 +21,8 @@ func _run() -> void:
 	root.add_child(main)
 	await physics_frame
 	var view: Vector2 = main.get_viewport().get_visible_rect().size
-	_left = Vector2(view.x * 0.2, view.y * 0.6)
-	_right = Vector2(view.x * 0.8, view.y * 0.6)
+	_stick_at = Vector2(view.x * 0.8, view.y * 0.6)
+	_pump_at = Vector2(view.x * 0.2, view.y * 0.6)
 	await _held_up_air_lands_clean()
 	await _corner_tap_does_not_reset()
 	await _corner_hold_resets()
@@ -31,7 +31,7 @@ func _run() -> void:
 	await _small_slide_is_a_small_adjustment()
 	await _pointing_up_never_turns_you_round()
 	await _pointing_down_is_not_a_pump()
-	await _right_thumb_pumps()
+	await _pump_thumb_pumps()
 	await _pump_drives_then_rises()
 	await _pump_tap_is_only_a_flick()
 	await _pump_hold_uses_up_stroke()
@@ -76,18 +76,18 @@ func _drag(index: int, pos: Vector2) -> void:
 	Input.parse_input_event(e)
 
 
-## Left thumb down at _left, then pointing in screen direction dir (y down),
+## Right thumb down at _stick_at, then pointing in screen direction dir (y down),
 ## pushed 60 px.
 func _thumb_down() -> void:
-	_touch(0, _left, true)
+	_touch(0, _stick_at, true)
 
 
 func _point(dir: Vector2) -> void:
-	_drag(0, _left + dir.normalized() * 60.0)
+	_drag(0, _stick_at + dir.normalized() * 60.0)
 
 
 func _thumb_up() -> void:
-	_touch(0, _left, false)
+	_touch(0, _stick_at, false)
 
 
 ## Point in dir until cond is true (or max_frames). Returns whether it came true.
@@ -108,7 +108,7 @@ func _hold_point(dir: Vector2, frames: int) -> void:
 
 func _fresh() -> void:
 	_thumb_up()
-	_touch(1, _right, false)
+	_touch(1, _pump_at, false)
 	_touch(2, _corner(), false)
 	await physics_frame   # injected touches arrive on the next frame: let the releases land first
 	seed(99)
@@ -214,10 +214,10 @@ func _tap_after_wipeout_paddles_out() -> void:
 	await _fresh()
 	main.surfer._wipeout("test")
 	await physics_frame
-	_touch(1, _right, true)
+	_touch(1, _pump_at, true)
 	await physics_frame
 	await physics_frame
-	_touch(1, _right, false)
+	_touch(1, _pump_at, false)
 	if main.state != main.PLAYING:
 		_fail("a tap after a wipeout should paddle back out")
 
@@ -235,23 +235,23 @@ func _pointing_down_is_not_a_pump() -> void:
 		_fail("pointing down started a pump; steering and pumping should be separate")
 
 
-## The right thumb is the pump: hold, lift, one pump.
-func _right_thumb_pumps() -> void:
+## The left thumb is the pump: hold, lift, one pump.
+func _pump_thumb_pumps() -> void:
 	await _pump_setup()
 	var s = main.surfer
 	main.rider = null
 	var pumps := [0]
 	var count := func(_q, _g): pumps[0] += 1
 	s.pumped.connect(count)
-	_touch(1, _right, true)
+	_touch(1, _pump_at, true)
 	for i in 18:
 		await physics_frame
-	_touch(1, _right, false)
+	_touch(1, _pump_at, false)
 	for i in 30:
 		await physics_frame
 	s.pumped.disconnect(count)
 	if pumps[0] != 1:
-		_fail("holding then lifting the right thumb should be one pump (got %d)" % pumps[0])
+		_fail("holding then lifting the left thumb should be one pump (got %d)" % pumps[0])
 
 
 ## Pump-test setup: hold a steady line high on the face with the curl far
@@ -516,7 +516,7 @@ func _crossing_the_stick_turns_the_short_way() -> void:
 	var faced_back := false
 	for i in 33:   # a quarter turn every 11 ticks, radius 70 px (inside the stick, so its centre stays put)
 		var a := PI / 2.0 - PI * float(i + 1) / 22.0
-		_drag(0, _left + Vector2(cos(a), -sin(a)) * 70.0)
+		_drag(0, _stick_at + Vector2(cos(a), -sin(a)) * 70.0)
 		await physics_frame
 		faced_back = faced_back or s.facing < 0.0
 	for i in 40:
@@ -527,7 +527,7 @@ func _crossing_the_stick_turns_the_short_way() -> void:
 	var t_cross: float = s.t
 	for i in 8:   # straight across, left to right, passing just above the centre
 		var f := float(i + 1) / 8.0
-		_drag(0, _left + Vector2(lerpf(-70.0, 70.0, f), lerpf(0.0, -40.0, f)))
+		_drag(0, _stick_at + Vector2(lerpf(-70.0, 70.0, f), lerpf(0.0, -40.0, f)))
 		await physics_frame
 	var t_max: float = s.t
 	var flipped_phi := 99.0
@@ -646,7 +646,7 @@ func _lip_hit_scores() -> void:
 			_fail("carving up and levelling off shouldn't score a lip hit (tricks %s)" % [tricks])
 
 
-## Where the left thumb lands is neutral. On the phone a still thumb rolls
+## Where the right thumb lands is neutral. On the phone a still thumb rolls
 ## about 30 px (upward, mostly) in the first ticks as it flattens onto the
 ## glass (recorded rides); that must not steer. Moving on from there steers as
 ## usual, and a quick flick counts in full from where the thumb landed.
@@ -656,15 +656,15 @@ func _settling_thumb_is_neutral() -> void:
 	var t0: float = s.t
 	_thumb_down()
 	await physics_frame
-	_drag(0, _left + Vector2(2, -26))
+	_drag(0, _stick_at + Vector2(2, -26))
 	await physics_frame
-	_drag(0, _left + Vector2(2, -33))
+	_drag(0, _stick_at + Vector2(2, -33))
 	var max_aim := 0.0
 	for i in 40:
 		await physics_frame
 		max_aim = maxf(max_aim, main.touch.aim.length())
 	var drift: float = absf(s.t - t0)
-	_drag(0, _left + Vector2(2, -33 - 60))
+	_drag(0, _stick_at + Vector2(2, -33 - 60))
 	await physics_frame
 	await physics_frame
 	var steer_after: Vector2 = main.touch.aim
@@ -672,7 +672,7 @@ func _settling_thumb_is_neutral() -> void:
 	await physics_frame
 	await physics_frame
 	_thumb_down()
-	_drag(0, _left + Vector2(0, -60))
+	_drag(0, _stick_at + Vector2(0, -60))
 	await physics_frame
 	await physics_frame
 	var flick: Vector2 = main.touch.aim
@@ -701,11 +701,11 @@ func _small_slide_is_a_small_adjustment() -> void:
 		for i in 12:   # let it settle (touch.SETTLE_TICKS), as in the recording
 			await physics_frame
 		if quick:
-			_drag(0, _left + dir * 50.0)
+			_drag(0, _stick_at + dir * 50.0)
 			await physics_frame
 		else:
 			for i in 10:   # 34 px over 10 ticks
-				_drag(0, _left + dir * 3.4 * float(i + 1))
+				_drag(0, _stick_at + dir * 3.4 * float(i + 1))
 				await physics_frame
 		var steepest := 0.0
 		for i in 45:
@@ -737,7 +737,7 @@ func _pointing_up_never_turns_you_round() -> void:
 			await physics_frame
 		var dir := Vector2(-0.35, -1.0).normalized() if push > 50.0 else Vector2(-0.02, -1.0).normalized()
 		for i in 10:   # a slow push: 110° firm, 91° light
-			_drag(0, _left + dir * push * float(i + 1) / 10.0)
+			_drag(0, _stick_at + dir * push * float(i + 1) / 10.0)
 			await physics_frame
 		var turned := false
 		for i in 90:

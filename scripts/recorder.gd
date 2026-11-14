@@ -23,7 +23,7 @@ var _tick := 0
 
 const COLUMNS := [
 	"tick",
-	# left thumb, viewport px (-1 when not touching): where it is and where the stick's centre is
+	# steering (right) thumb, viewport px (-1 when not touching): where it is and where the stick's centre is
 	"stick_x", "stick_y", "origin_x", "origin_y",
 	# what the game read from it: aim (x down the line, y up the face, length = push) and the pump
 	"aim_x", "aim_y", "pump", "pump_x", "pump_y",

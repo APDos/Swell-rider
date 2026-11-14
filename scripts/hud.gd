@@ -55,7 +55,7 @@ func _ready() -> void:
 	help.offset_left = 28 + lx
 	help.offset_top = -44 - inset.size.y
 	help.offset_bottom = -14 - inset.size.y
-	help.text = "Left thumb: point the nose (sweep up and round to cut back; straight back to stall)   Right thumb: hold to pump, lift to turn up   Hold ↻: restart"
+	help.text = "Right thumb: point the nose (sweep up and round to cut back; straight back to stall)   Left thumb: hold to pump, lift to turn up   Hold ↻: restart"
 	help.modulate.a = 0.8
 
 

@@ -6,11 +6,11 @@ extends Node3D
 ## Speed comes from two places, as in real surfing:
 ## - The wave: gravity on the face, plus a push from the breaking water that is
 ##   strongest in the pocket. On its own this isn't quite enough to keep up.
-## - Pumping (the right thumb): one pump is a down-and-up S-turn high on the face.
+## - Pumping (the left thumb): one pump is a down-and-up S-turn high on the face.
 ##   Hold to drop and drive down the face, release to turn off the bottom of
 ##   the drop (that's where the speed comes from) and carve back up to the
 ##   height you started at. See _pump_accel below.
-## Steering (the left thumb) points the nose: aim is the direction the thumb
+## Steering (the right thumb) points the nose: aim is the direction the thumb
 ## points (x down the line, y up the face). Ahead of the board, the nose carves
 ## round to it, short of vertical. Behind the board, the nose drives on round
 ## past vertical toward it: a cutback (sweep up and round), or back down the
@@ -254,9 +254,9 @@ func _save_prev() -> void:
 	_p_wipe_rot = _wipe_rot
 
 
-## One fixed physics tick. aim is where the left thumb points, in screen terms:
+## One fixed physics tick. aim is where the right thumb points, in screen terms:
 ## x toward down the line (right), y up the face; its length (0..1) is how
-## hard. pump is 0..1 (the right thumb).
+## hard. pump is 0..1 (the left thumb).
 func step(dt: float, aim := Vector2.ZERO, pump := 0.0) -> void:
 	_save_prev()
 	_clock += dt

@@ -11,8 +11,8 @@ const DIR := "user://test_rides"
 
 var _failures := 0
 var main: Node
-var _left := Vector2.ZERO
-var _right := Vector2.ZERO
+var _stick_at := Vector2.ZERO
+var _pump_at := Vector2.ZERO
 
 
 func _initialize() -> void:
@@ -27,8 +27,8 @@ func _run() -> void:
 	main.recorder.dir = DIR
 	main.recorder.enabled = true
 	var view: Vector2 = main.get_viewport().get_visible_rect().size
-	_left = Vector2(view.x * 0.2, view.y * 0.6)
-	_right = Vector2(view.x * 0.8, view.y * 0.6)
+	_stick_at = Vector2(view.x * 0.8, view.y * 0.6)
+	_pump_at = Vector2(view.x * 0.2, view.y * 0.6)
 	seed(4321)
 	main._reset()
 	var path: String = main.recorder.path
@@ -73,20 +73,20 @@ func _run() -> void:
 
 ## Up to 8 s of riding (it may wipe out sooner): pumps, carves up and down, a cutback.
 func _play() -> void:
-	_touch(0, _left, true)
+	_touch(0, _stick_at, true)
 	var dirs := [Vector2(1, 0.3), Vector2(1, -0.5), Vector2(0.2, -1), Vector2(-1, -0.4),
 			Vector2(-0.6, 0.8), Vector2(0.4, 1), Vector2(1, 0.2), Vector2(1, -0.6)]
 	for i in 8:
-		_drag(0, _left + dirs[i].normalized() * 60.0)
-		_touch(1, _right, true)
+		_drag(0, _stick_at + dirs[i].normalized() * 60.0)
+		_touch(1, _pump_at, true)
 		for f in 30:
 			await physics_frame
-		_touch(1, _right, false)
+		_touch(1, _pump_at, false)
 		for f in 30:
 			await physics_frame
 		if main.state != main.PLAYING:
 			break
-	_touch(0, _left, false)
+	_touch(0, _stick_at, false)
 	for f in 20:
 		await physics_frame
 
