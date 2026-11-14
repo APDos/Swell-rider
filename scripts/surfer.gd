@@ -50,6 +50,9 @@ const SWEEP_PUSH := 0.95      # a thumb pushed less than this is near the stick'
 const CROSS_HOLD := 0.15      # s a light push holds the turn where it was (the thumb crossing the centre); longer is a gentle steer, followed the short way
 const STALL_CONE := 0.35      # rad (20°): pointing this close to straight behind you is the stall...
 const STALL_PHI := 0.5        # ...as long as the nose isn't already swinging round (|phi| under this)
+const CUT_BAND := 0.6         # rad (35°): to start turning round, the thumb must be this far past straight up (or down), clearly behind you: near vertical is a steep carve
+const CUT_PUSH := 0.5         # ...and pushed at least this far (a light push behind is a gentle carve, not a turnaround)
+const CUT_MEMORY := 0.4       # s after turning round (cutting) that carrying on the sweep needs neither: the turn is under way
 const BEHIND_TIE := 0.5       # rad (30°): a turn this close to half way round goes round the bottom, whichever way is shorter
 const FOAM_REACH := 1.5       # m ahead of the curl the whitewater pile already reaches: a rebound counts from here
 const FOAM_HOLD := 1.0        # m behind the curl the whitewater shoves you along at, rather than letting you plough deeper
@@ -142,6 +145,7 @@ var _aim := Vector2.ZERO
 var _thumb_ang := 0.0        # where the thumb points, world angle, unwrapped: a sweep round keeps adding up
 var _board_ang := 0.0        # the board's heading, world angle, unwrapped
 var _was_steering := false
+var _since_cut := 10.0     # s since the board was last turning round (cutting)
 var _was_sweeping := false   # last tick the thumb was pushed out far enough for its angle to count as a sweep
 var _light_time := 0.0       # s the thumb has been near the stick's centre
 var _stall_hold := false     # the thumb landed straight behind a level board: stall until it moves off
@@ -211,6 +215,7 @@ func reset(start_x: float) -> void:
 	_lip_top = false
 	_was_steering = false
 	_was_sweeping = false
+	_since_cut = 10.0
 	_light_time = 0.0
 	_stall_hold = false
 	pump_phase = PUMP_IDLE
@@ -317,9 +322,19 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 					_thumb_ang = _board_ang + rel
 		var want := atan2(aim.y, aim.x * facing)
 		var diff := _thumb_ang - _board_ang
+		# Turning round starts only with the thumb clearly behind you (past
+		# CUT_BAND beyond vertical) and pushed: straight up a pixel to the
+		# left is a steep carve, not a cutback (a recorded ride turned round on
+		# a light push at 91°). Once turning, it carries on as the sweep goes.
+		# Starting is about where the thumb points (want), not how far the board
+		# is from it: bouncing off the lip swings the nose down, and that
+		# mustn't read as the thumb being behind you.
+		var under_way := _since_cut < CUT_MEMORY
+		var turn_round: bool = (absf(want) > PI / 2.0 + CUT_BAND and strength >= CUT_PUSH) \
+				or (under_way and (absf(want) > PI / 2.0 or absf(diff) > PI / 2.0))
 		if _stall_hold:
 			stall = strength
-		elif absf(want) <= PI / 2.0 and absf(diff) <= PI / 2.0:
+		elif not turn_round:
 			# Ahead of you: carve round to it, capped short of vertical. How far
 			# you push is how far round: a small push angles the board part way
 			# toward your thumb (a small adjustment), a full one all the way.
@@ -341,6 +356,7 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 	# vertical in a cutback, but the turn (and the lean into it) doesn't.
 	_steer = clampf(facing * target_rate / TURN, -1.0, 1.0)
 	_was_steering = steering
+	_since_cut = 0.0 if cutting else _since_cut + dt
 	_was_sweeping = steering and sweeping
 	# Turns build up and ease off rather than switching on and off instantly.
 	turn_rate = lerpf(turn_rate, target_rate, 1.0 - exp(-TURN_RESPONSE * dt))

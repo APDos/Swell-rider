@@ -29,6 +29,7 @@ func _run() -> void:
 	await _tap_after_wipeout_paddles_out()
 	await _settling_thumb_is_neutral()
 	await _small_slide_is_a_small_adjustment()
+	await _pointing_up_never_turns_you_round()
 	await _pointing_down_is_not_a_pump()
 	await _right_thumb_pumps()
 	await _pump_drives_then_rises()
@@ -720,6 +721,31 @@ func _small_slide_is_a_small_adjustment() -> void:
 		_fail("a quick flick should be the full turn (only reached %.0f°)" % rad_to_deg(fast[0]))
 	if slow[1] > 0.6 * fast[1]:
 		_fail("a small slow slide down should drop you down the face far less than a flick (%.2f vs %.2f)" % [slow[1], fast[1]])
+
+
+## Pointing up, a hair left of vertical, is a carve up the face, not a cutback.
+## From a recorded ride: a light 35 px push at 91° turned the board round over
+## the top toward the barrel. A light push, or a firm one near vertical, never
+## turns you round; that takes the thumb clearly behind you.
+func _pointing_up_never_turns_you_round() -> void:
+	for push in [35.0, 70.0]:
+		await _ride_setup(60.0)
+		var s = main.surfer
+		s.t = 0.4
+		_thumb_down()
+		for i in 12:   # let it settle
+			await physics_frame
+		var dir := Vector2(-0.35, -1.0).normalized() if push > 50.0 else Vector2(-0.02, -1.0).normalized()
+		for i in 10:   # a slow push: 110° firm, 91° light
+			_drag(0, _left + dir * push * float(i + 1) / 10.0)
+			await physics_frame
+		var turned := false
+		for i in 90:
+			await physics_frame
+			turned = turned or s.facing < 0.0
+		_thumb_up()
+		if turned:
+			_fail("pointing up (%.0f°, %.0f px) should carve up the face, not turn you round" % [rad_to_deg(atan2(-dir.y, dir.x)), push])
 
 
 ## A player with no thumb on the stick.
