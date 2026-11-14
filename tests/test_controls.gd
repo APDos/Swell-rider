@@ -28,6 +28,7 @@ func _run() -> void:
 	await _corner_hold_resets()
 	await _tap_after_wipeout_paddles_out()
 	await _settling_thumb_is_neutral()
+	await _small_slide_is_a_small_adjustment()
 	await _pointing_down_is_not_a_pump()
 	await _right_thumb_pumps()
 	await _pump_drives_then_rises()
@@ -681,6 +682,44 @@ func _settling_thumb_is_neutral() -> void:
 		_fail("after settling, pushing the thumb up should steer up (aim %s)" % steer_after)
 	if flick.y < 0.9:
 		_fail("a quick flick right after touching down should steer at once (aim %s)" % flick)
+
+
+## Sensitivity: a small, slow slide is a small adjustment; a quick move (a
+## flick, barely bigger) is the full turn. From a recorded ride: a slow 34 px
+## slide down-right dove the board to -45° and off the bottom of the wave.
+## Recorded thumbs: small adjustments and a settling thumb move at most ~36 px
+## in 3 ticks, real flicks 45-175 px.
+func _small_slide_is_a_small_adjustment() -> void:
+	var result := {}
+	for quick in [false, true]:
+		await _ride_setup(60.0)
+		var s = main.surfer
+		var t0: float = s.t
+		var dir := Vector2(0.71, 0.71)   # down the face and down the line, screen y down
+		_thumb_down()
+		for i in 12:   # let it settle (touch.SETTLE_TICKS), as in the recording
+			await physics_frame
+		if quick:
+			_drag(0, _left + dir * 50.0)
+			await physics_frame
+		else:
+			for i in 10:   # 34 px over 10 ticks
+				_drag(0, _left + dir * 3.4 * float(i + 1))
+				await physics_frame
+		var steepest := 0.0
+		for i in 45:
+			await physics_frame
+			steepest = minf(steepest, s.heading())
+		_thumb_up()
+		result[quick] = [steepest, t0 - s.t]
+	var slow: Array = result[false]
+	var fast: Array = result[true]
+	if slow[0] < deg_to_rad(-25.0):
+		_fail("a small slow slide down should only angle the board down a little (it went to %.0f°)" % rad_to_deg(slow[0]))
+	if fast[0] > deg_to_rad(-38.0):
+		_fail("a quick flick should be the full turn (only reached %.0f°)" % rad_to_deg(fast[0]))
+	if slow[1] > 0.6 * fast[1]:
+		_fail("a small slow slide down should drop you down the face far less than a flick (%.2f vs %.2f)" % [slow[1], fast[1]])
 
 
 ## A player with no thumb on the stick.

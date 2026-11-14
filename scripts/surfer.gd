@@ -320,10 +320,13 @@ func _step_riding(dt: float, aim: Vector2, pump: float) -> void:
 		if _stall_hold:
 			stall = strength
 		elif absf(want) <= PI / 2.0 and absf(diff) <= PI / 2.0:
-			# Ahead of you: carve round to it, capped short of vertical. Coming
-			# out of a turn-around the nose keeps the cutback's pace.
+			# Ahead of you: carve round to it, capped short of vertical. How far
+			# you push is how far round: a small push angles the board part way
+			# toward your thumb (a small adjustment), a full one all the way.
+			# Coming out of a turn-around the nose keeps the cutback's pace.
 			var cap := CUTBACK_TURN if absf(phi) > MAX_PHI else TURN
-			target_rate = clampf((clampf(want, -MAX_PHI, MAX_PHI) - phi) * AIM_GAIN, -1.0, 1.0) * cap * strength
+			var target := clampf(want, -MAX_PHI, MAX_PHI) * strength
+			target_rate = clampf((target - phi) * AIM_GAIN, -1.0, 1.0) * cap
 		else:
 			# Behind you, or a sweep that's gone further round: the nose follows
 			# the thumb's sweep, the same way round, past vertical. A reverse C

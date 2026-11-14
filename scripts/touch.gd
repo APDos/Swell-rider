@@ -6,13 +6,20 @@ extends CanvasLayer
 ##   first moment the stick's centre follows it. Ahead of the board it carves; behind it, the nose swings round
 ##   (sweep a reverse C up and round for a cutback); straight back with the
 ##   board running level is the stall. In the air, sideways spins.
+##   How far you push is how much: a small slide is a small adjustment (the
+##   board angles only part way toward your thumb), a long one is the full
+##   turn. A quick move (a flick, FLICK_PX within FLICK_TICKS) is the full
+##   turn at once, however short, until the thumb comes back to the middle.
 ## - Right half: hold to pump (drive), lift your thumb to turn off the bottom.
 ## - After a wipeout, a tap paddles back out. Mid-ride, hold the ↻ corner.
 ## main.gd reads aim, pump, restart_down and consume_tap() each physics tick.
 
 const RADIUS := 80.0        # px (viewport): size of the drawn stick; the centre follows your thumb past it
 const DEADZONE := 0.15      # of RADIUS: smaller than this is no input
-const FULL := 0.45          # of RADIUS: a push this long is already full strength
+const FULL := 0.85          # of RADIUS: a slow push this long is full strength; shorter is part way (a small adjustment)
+const FLICK_PX := 45.0      # px (viewport) the thumb must travel...
+const FLICK_TICKS := 3      # ...within this many physics ticks (~0.05 s) to be a flick: full strength at once...
+const FLICK_FULL := 0.45    # ...once it's this far out (of RADIUS). Nearer the middle it's a light push even in a flick, so the thumb crossing the middle still reads as crossing (surfer.SWEEP_PUSH)
 const SETTLE_TICKS := 7     # physics ticks (~0.12 s) after touch-down that the thumb is still settling...
 const SETTLE_PX := 45.0     # ...as long as it stays this close (px, viewport) to where it landed: the stick's centre follows it, so a still thumb steers nothing. Further, sooner, is a real flick, measured from where it landed.
 const RESTART_SIZE := Vector2(120, 100)   # the ↻ hold area, top-right corner
@@ -32,6 +39,8 @@ var _stick_pos := Vector2.ZERO
 var _stick_down := Vector2.ZERO   # where the left thumb landed
 var _stick_down_tick := 0
 var _stick_settled := false       # past the settling moment: the centre stays put
+var _flick := false               # this push started with a quick move: full strength until the thumb is back in the middle
+var _stick_hist: Array[Vector2] = []   # the thumb's position at each of the last FLICK_TICKS physics ticks
 var _pump_id := -1
 var _pump_pos := Vector2.ZERO
 var _restart_id := -1
@@ -97,6 +106,8 @@ func _input(event: InputEvent) -> void:
 					_stick_down = p
 					_stick_down_tick = Engine.get_physics_frames()
 					_stick_settled = false
+					_flick = false
+					_stick_hist.clear()
 			elif _pump_id == -1:
 				_pump_id = event.index
 				_pump_pos = p
@@ -127,6 +138,9 @@ func _input(event: InputEvent) -> void:
 				else:
 					_stick_settled = true   # a quick flick: it counts from where the thumb landed
 					_stick_origin = _stick_down
+					_flick = true
+			if not _stick_hist.is_empty() and _stick_pos.distance_to(_stick_hist[0]) >= FLICK_PX:
+				_flick = true
 			var off := _stick_pos - _stick_origin
 			# Past the edge, the stick's centre follows your thumb, so turning
 			# back the other way responds straight away.
@@ -141,14 +155,27 @@ func _input(event: InputEvent) -> void:
 
 
 ## v: stick offset in units of RADIUS, screen y down. The direction is kept
-## exactly (it's where the nose should point); a short push (FULL of the
-## radius) is already full strength.
+## exactly (it's where the nose should point). The length is how much: it
+## ramps up to full at FULL of the radius, or is full at once after a flick.
 func _set_stick(v: Vector2) -> void:
 	var len := minf(v.length(), 1.0)
 	if len < DEADZONE:
 		aim = Vector2.ZERO
+		_flick = false   # back in the middle: the next push is measured afresh
 	else:
-		aim = Vector2(v.x, -v.y).normalized() * clampf((len - DEADZONE) / (FULL - DEADZONE), 0.0, 1.0)
+		var amount := clampf((len - DEADZONE) / (FULL - DEADZONE), 0.0, 1.0)
+		if _flick and len >= FLICK_FULL:
+			amount = 1.0
+		aim = Vector2(v.x, -v.y).normalized() * amount
+
+
+## Remember where the thumb was each tick, to tell a flick from a slow slide.
+func _physics_process(_dt: float) -> void:
+	if _stick_id == -1:
+		return
+	_stick_hist.append(_stick_pos)
+	while _stick_hist.size() > FLICK_TICKS:
+		_stick_hist.pop_front()
 
 
 func _on_draw() -> void:

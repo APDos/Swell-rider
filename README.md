@@ -3,7 +3,7 @@
 Side-view wave riding in Godot 4.3+. Everything (wave, surfer, HUD) is built in code, so there are no assets to import.
 
 ## Controls (iPhone, landscape)
-- **Left thumb: point the nose.** Touch anywhere on the left half (where you touch is neutral) and slide toward where you want the board to go; it carves round to follow your thumb.
+- **Left thumb: point the nose.** Touch anywhere on the left half (where you touch is neutral) and slide toward where you want the board to go; it carves round to follow your thumb. A small, slow slide is a small adjustment; slide further, or flick quickly, for the full turn.
   - Up / down: carve up the face (lip, airs) or down it. Keep pointing down and you ride out onto the flat water in front of the wave.
   - **Cutback**: one sweep of the thumb, like drawing a backwards S (or a 2). The reverse C (up, up-back, back, down-back) turns the nose up and round to point at the barrel; keep sweeping on round the bottom (down, down-ahead, ahead) and the board drops down the face and comes back round the bottom, down the line. The board follows the way your thumb is sweeping, so it never doubles back on you. Or, once you're facing the barrel, just slide your thumb straight across to point back down the line: the board turns back the short way, round the bottom.
   - **Stall**: point straight behind you while the board is running level. Your weight goes on the tail, which brakes harder the faster you're going.
