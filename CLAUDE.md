@@ -47,7 +47,7 @@ Design goals: easy to pick up, hard to master, and it should feel right to real 
 
 ## Phone (the target platform)
 - The game is built for iPhone: landscape (`window/handheld/orientation`), `stretch/aspect="expand"`, Mobile renderer on phones, ETC2/ASTC textures. Check visual changes with `--rendering-method mobile` on the Mac too.
-- `scripts/touch.gd` (added by main.gd only on touch devices) turns thumbs into the same input actions as the keyboard, at analog strength: a floating stick on the left half, pump on the right half, tap to paddle out, hold ↻ top-right to restart. Never add touch-only gameplay paths; feed the actions. The HUD keeps clear of the notch via `touch.safe_insets()`.
+- `scripts/touch.gd` (added by main.gd only on touch devices) turns thumbs into the same input actions as the keyboard: a floating stick on the left half that snaps to 8 directions and reaches full strength at `FULL` of its radius (a thumb can't hold precise angles, so it behaves like the arrow keys), pump on the right half, tap to paddle out, hold ↻ top-right to restart. Never add touch-only gameplay paths; feed the actions. The HUD keeps clear of the notch via `touch.safe_insets()`.
 - Export: `export_presets.cfg` (preset "iOS", development signing). Needs Godot's 4.7.2 iOS template and Xcode 26 (the template links iOS 26 APIs). `build/` holds the Xcode project and .ipa; it has a `.gdignore` and is git-ignored.
 - `test_controls` drives touch.gd with real touch events; touch positions are in window pixels, so tests convert view positions with the viewport's final transform.
 

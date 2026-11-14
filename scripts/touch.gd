@@ -8,8 +8,9 @@ extends CanvasLayer
 ## It presses the same input actions as the keyboard and gamepad, at analog
 ## strength, so gameplay never knows where the input came from.
 
-const RADIUS := 80.0        # px (viewport) of drag for a full push
-const DEADZONE := 0.12
+const RADIUS := 80.0        # px (viewport): size of the drawn stick; the centre follows your thumb past it
+const DEADZONE := 0.15      # of RADIUS: smaller than this is no input
+const FULL := 0.45          # of RADIUS: a push this long is already full strength
 const RESTART_SIZE := Vector2(120, 100)   # the ↻ hold area, top-right corner
 
 var main   # main.gd, for its state and the safe-area insets
@@ -104,16 +105,20 @@ func _input(event: InputEvent) -> void:
 			_canvas.queue_redraw()
 
 
-## v: stick offset, -1..1 per axis, screen y down. Mapped onto a square so a
-## full diagonal is full on both axes, the same as holding two arrow keys.
+## v: stick offset in units of RADIUS, screen y down. A thumb can't hold a
+## precise angle or a full-length push, so the stick works like the arrow keys:
+## the direction snaps to the nearest of 8 (up, up-back, back, ...; each 45°
+## wide), and a short push (FULL of the radius) is already full strength. So
+## anywhere in the up-back sector is a full cutback, never a half-stall.
 func _set_stick(v: Vector2) -> void:
 	var len := minf(v.length(), 1.0)
 	if len < DEADZONE:
 		v = Vector2.ZERO
 	else:
-		var dir := v.normalized()
-		var m := maxf(absf(dir.x), absf(dir.y))
-		v = dir / m * (len - DEADZONE) / (1.0 - DEADZONE)
+		var sector := roundi(v.angle() / (PI / 4.0))
+		var dir := Vector2.from_angle(sector * PI / 4.0)
+		dir = Vector2(roundf(dir.x), roundf(dir.y))   # (±1, 0), (0, ±1) or (±1, ±1)
+		v = dir * clampf((len - DEADZONE) / (FULL - DEADZONE), 0.0, 1.0)
 	_axis("carve_up", -v.y)
 	_axis("carve_down", v.y)
 	_axis("spin_left", -v.x)

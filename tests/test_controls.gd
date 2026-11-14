@@ -443,6 +443,15 @@ func _touch_controls() -> void:
 		await physics_frame
 	if s.tail_dig < 0.5 or s.facing < 0.0:
 		_fail("touch: dragging back alone should stall (dig %.2f, facing %d)" % [s.tail_dig, int(s.facing)])
+	# A short, sloppy up-back drag (about 30° above back, 40 px) is still a
+	# full-strength cutback, not a half-stall: the stick snaps to 8 directions.
+	_touch(0, left, false)   # lift and touch again, so the stick re-centres under the thumb
+	_touch(0, left, true)
+	_drag(0, left + Vector2(-35, -20))
+	for i in 3:
+		await physics_frame
+	if Input.get_action_strength("carve_up") < 0.99 or Input.get_action_strength("spin_left") < 0.99:
+		_fail("touch: a short up-back drag should be full up + full back (up %.2f, back %.2f)" % [Input.get_action_strength("carve_up"), Input.get_action_strength("spin_left")])
 	# Up-back: drive a cutback, while the other thumb pumps.
 	_drag(0, left + Vector2(-90, -90))
 	_touch(1, right, true)
