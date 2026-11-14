@@ -10,6 +10,7 @@ if [[ -z "$DEVICE" ]]; then
 	[[ -z "$DEVICE" ]] && { echo "No connected iPhone found; pass the device name or id." >&2; exit 1; }
 fi
 mkdir -p rides
+touch rides/.gdignore   # keep Godot from importing the CSVs as translations (and packing them into builds)
 xcrun devicectl device copy from --device "$DEVICE" --domain-type appDataContainer \
 	--domain-identifier com.apdos.swellrider --source Documents/rides --destination rides >/dev/null
 ls -1t rides | head -20
