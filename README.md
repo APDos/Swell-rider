@@ -13,7 +13,7 @@ The game is meant for the phone: landscape, thumb controls.
 - **Right thumb**: hold anywhere on the right half to pump (drive), lift to turn off the bottom.
 - After a wipeout, tap to paddle back out. Mid-ride, hold the ↻ in the top-right corner to restart.
 
-To build it: Godot 4.7.2 with its iOS export template, and **Xcode 26** (Godot 4.7's iOS template links against the iOS 26 SDK; Xcode 16 fails at the link step). Xcode 26 needs macOS 15.6 or later. Sign in to your Apple account in Xcode > Settings > Accounts, plug in and unlock the phone, then:
+To build it: Godot 4.7.2 with its iOS export template, and **Xcode 26 or later** (Godot 4.7's iOS template links against the iOS 26 SDK; Xcode 16 fails at the link step). Minimum iOS is 16. Sign in to your Apple account in Xcode > Settings > Accounts, plug in and unlock the phone, then:
 ```
 godot --headless --path . --export-debug "iOS" build/ios/SwellRider.ipa
 xcrun devicectl device install app --device <device id> build/ios/SwellRider.ipa
